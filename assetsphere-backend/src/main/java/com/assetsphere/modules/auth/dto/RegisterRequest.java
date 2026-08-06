@@ -1,0 +1,3 @@
+package com.assetsphere.modules.auth.dto;
+import jakarta.validation.constraints.Email; import jakarta.validation.constraints.NotBlank; import jakarta.validation.constraints.Pattern; import jakarta.validation.constraints.Size;
+public record RegisterRequest(@NotBlank @Email @Size(max = 320) String email, @NotBlank @Size(min = 12, max = 72) @Pattern(regexp = ".*[A-Z].*", message = "must contain an uppercase letter") @Pattern(regexp = ".*[a-z].*", message = "must contain a lowercase letter") @Pattern(regexp = ".*\\d.*", message = "must contain a digit") String password, @NotBlank @Size(max = 120) String displayName) { }

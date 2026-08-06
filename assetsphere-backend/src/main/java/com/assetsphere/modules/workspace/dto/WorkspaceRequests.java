@@ -1,0 +1,3 @@
+package com.assetsphere.modules.workspace.dto;
+import java.util.UUID; import jakarta.validation.constraints.*; import com.assetsphere.modules.workspace.domain.WorkspaceRole;
+public final class WorkspaceRequests { private WorkspaceRequests(){} public record Create(@NotBlank @Size(max=160) String name,@NotBlank @Size(max=160) String slug,@Size(max=2000) String description){} public record Update(@Size(min=1,max=160) String name,@Size(max=2000) String description){} public record Invite(@NotBlank @Email @Size(max=320) String email,@NotNull WorkspaceRole role){} public record Accept(@NotBlank @Size(max=512) String invitationToken){} public record ChangeRole(@NotNull WorkspaceRole role){} }

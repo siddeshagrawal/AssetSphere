@@ -1,6 +1,7 @@
 package com.assetsphere.infrastructure.storage;
 
 import com.assetsphere.infrastructure.config.ApplicationProperties;
+import com.assetsphere.modules.storage.AssetStorage;
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
@@ -17,7 +18,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(prefix = "assetsphere.storage.minio", name = "enabled", havingValue = "true")
-class MinioObjectStorage implements ObjectStorage {
+class MinioObjectStorage implements AssetStorage {
     private final MinioClient client;
     private final String bucket;
 
@@ -35,19 +36,14 @@ class MinioObjectStorage implements ObjectStorage {
 
     @Override
     @SneakyThrows
-    public void put(String key, InputStream content, long size, String contentType) {
-        client.putObject(PutObjectArgs.builder().bucket(bucket).object(key).stream(content, size, -1).contentType(contentType).build());
+    public StoredAssetObject store(StoreAssetCommand command) {
+        client.putObject(PutObjectArgs.builder().bucket(bucket).object(command.objectKey()).stream(command.content(), command.contentLength(), -1).contentType(command.mimeType()).build());
+        return new StoredAssetObject(command.objectKey());
     }
 
     @Override
     @SneakyThrows
-    public InputStream get(String key) {
-        return client.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build());
-    }
-
-    @Override
-    @SneakyThrows
-    public void delete(String key) {
-        client.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
+    public void delete(String objectKey) {
+        client.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
     }
 }

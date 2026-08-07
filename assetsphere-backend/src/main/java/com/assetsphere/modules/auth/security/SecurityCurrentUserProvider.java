@@ -1,4 +1,4 @@
-package com.assetsphere.infrastructure.security;
+package com.assetsphere.modules.auth.security;
 
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;

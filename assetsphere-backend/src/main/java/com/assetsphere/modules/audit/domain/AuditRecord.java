@@ -21,7 +21,7 @@ public class AuditRecord extends BaseEntity {
     @Column(name = "resource_type", nullable = false, length = 80) private String resourceType;
     @Column(name = "resource_id") private UUID resourceId;
     @Column(name = "correlation_id", length = 128) private String correlationId;
-    @Column(columnDefinition = "jsonb") private String metadata;
+    @Column private String metadata;
 
     protected AuditRecord() { }
 

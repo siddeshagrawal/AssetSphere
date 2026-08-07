@@ -1,2 +1,2 @@
 @org.springframework.modulith.NamedInterface("api")
-package com.assetsphere.infrastructure.security;
+package com.assetsphere.modules.storage;

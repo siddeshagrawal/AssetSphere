@@ -8,13 +8,12 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.assetsphere.infrastructure.config.ApplicationProperties;
-import com.assetsphere.infrastructure.security.JwtTokenProvider;
 import com.assetsphere.modules.audit.AuditService;
 import com.assetsphere.modules.audit.domain.AuditAction;
 import com.assetsphere.modules.common.EmailNormalizer;
@@ -40,18 +39,22 @@ public class AuthenticationService {
     private final UserRepository users;
     private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder passwords;
-    private final JwtTokenProvider jwt;
-    private final ApplicationProperties properties;
+    private final TokenService jwt;
+    private final long refreshTokenExpirationSeconds;
+    private final int loginMaxFailures;
+    private final long lockDurationSeconds;
     private final ClockProvider clock;
     private final WorkspaceFacade workspaces;
     private final AuditService audit;
 
-    public AuthenticationService(UserRepository users, RefreshTokenRepository refreshTokens, PasswordEncoder passwords, JwtTokenProvider jwt, ApplicationProperties properties, ClockProvider clock, WorkspaceFacade workspaces, AuditService audit) {
+    public AuthenticationService(UserRepository users, RefreshTokenRepository refreshTokens, PasswordEncoder passwords, TokenService jwt, @Value("${assetsphere.jwt.refresh-token-expiration-seconds}") long refreshTokenExpirationSeconds, @Value("${assetsphere.security.login-max-failures}") int loginMaxFailures, @Value("${assetsphere.security.lock-duration-seconds}") long lockDurationSeconds, ClockProvider clock, WorkspaceFacade workspaces, AuditService audit) {
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.passwords = passwords;
         this.jwt = jwt;
-        this.properties = properties;
+        this.refreshTokenExpirationSeconds = refreshTokenExpirationSeconds;
+        this.loginMaxFailures = loginMaxFailures;
+        this.lockDurationSeconds = lockDurationSeconds;
         this.clock = clock;
         this.workspaces = workspaces;
         this.audit = audit;
@@ -79,7 +82,7 @@ public class AuthenticationService {
         User user = users.findByNormalizedEmail(email).orElse(null);
         if (user == null || !user.prepareForLogin(now) || !passwords.matches(request.password(), user.getPasswordHash())) {
             if (user != null) {
-                user.recordFailedLogin(now, properties.getSecurity().getLoginMaxFailures(), properties.getSecurity().getLockDurationSeconds());
+                user.recordFailedLogin(now, loginMaxFailures, lockDurationSeconds);
                 audit.record(user.getId(), AuditAction.USER_LOGIN_FAILED, null, "USER", user.getId(), "{}");
             }
             throw new AuthenticationFailedException("Invalid email or password");
@@ -117,10 +120,10 @@ public class AuthenticationService {
     }
 
     private AuthenticationResponse issueTokens(User user, String clientMetadata, Instant now) {
-        var access = jwt.createAccessToken(user.getId(), user.getNormalizedEmail());
+        var access = jwt.issueAccessToken(user.getId(), user.getNormalizedEmail());
         String rawRefresh = newRefreshToken();
-        refreshTokens.save(new RefreshToken(user.getId(), hash(rawRefresh), now, now.plusSeconds(properties.getJwt().getRefreshTokenExpirationSeconds()), clientMetadata));
-        return new AuthenticationResponse("Bearer", access.value(), access.expiresInSeconds(), rawRefresh, properties.getJwt().getRefreshTokenExpirationSeconds());
+        refreshTokens.save(new RefreshToken(user.getId(), hash(rawRefresh), now, now.plusSeconds(refreshTokenExpirationSeconds), clientMetadata));
+        return new AuthenticationResponse("Bearer", access.value(), access.expiresInSeconds(), rawRefresh, refreshTokenExpirationSeconds);
     }
 
     private String newRefreshToken() {

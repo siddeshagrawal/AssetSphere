@@ -1,4 +1,4 @@
-package com.assetsphere.infrastructure.security;
+package com.assetsphere.modules.auth.security;
 
 import java.io.IOException;
 import java.util.List;
@@ -14,9 +14,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 class JwtAuthenticationFilter extends OncePerRequestFilter {
-    private final JwtTokenProvider tokenProvider;
+    private final com.assetsphere.modules.auth.TokenService tokenProvider;
 
-    JwtAuthenticationFilter(JwtTokenProvider tokenProvider) {
+    JwtAuthenticationFilter(com.assetsphere.modules.auth.TokenService tokenProvider) {
         this.tokenProvider = tokenProvider;
     }
 
@@ -25,7 +25,8 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            AuthenticatedUser user = tokenProvider.parse(header.substring(7));
+            var authenticated = tokenProvider.authenticate(header.substring(7));
+            AuthenticatedUser user = new AuthenticatedUser(authenticated.userId(), authenticated.email());
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(user, null, List.of()));
         }

@@ -61,6 +61,7 @@ services:
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MINIO_ENDPOINT: http://minio:9000
+      ASSETSPHERE_JWT_SECRET: ${ASSETSPHERE_JWT_SECRET:?ASSETSPHERE_JWT_SECRET must be set}
     ports: [ "8080:8080" ]
     depends_on: [ postgres, redis, kafka, minio ]
 volumes:

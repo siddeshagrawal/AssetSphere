@@ -1,0 +1,1 @@
+package com.assetsphere.modules.storage; import java.util.*; import org.springframework.data.jpa.repository.JpaRepository; public interface StorageObjectRepository extends JpaRepository<StorageObject,UUID>{ Optional<StorageObject> findByWorkspaceIdAndChecksumSha256(UUID workspaceId,String checksumSha256); }

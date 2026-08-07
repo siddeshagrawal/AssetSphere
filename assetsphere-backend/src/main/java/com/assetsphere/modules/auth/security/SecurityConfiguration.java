@@ -1,4 +1,4 @@
-package com.assetsphere.infrastructure.security;
+package com.assetsphere.modules.auth.security;
 
 import java.io.IOException;
 import java.time.Instant;

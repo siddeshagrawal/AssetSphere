@@ -1,1 +1,0 @@
-package com.assetsphere.modules.asset; import java.util.*; import org.springframework.data.jpa.repository.JpaRepository; public interface AssetVersionRepository extends JpaRepository<AssetVersion,UUID>{ Optional<AssetVersion> findByAssetIdAndVersionNumber(UUID assetId,int versionNumber); }

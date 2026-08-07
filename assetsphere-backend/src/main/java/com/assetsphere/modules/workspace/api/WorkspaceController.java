@@ -1,3 +1,100 @@
 package com.assetsphere.modules.workspace.api;
-import java.util.UUID; import io.swagger.v3.oas.annotations.tags.Tag; import jakarta.validation.Valid; import org.springframework.http.*; import org.springframework.web.bind.annotation.*; import com.assetsphere.modules.common.*; import com.assetsphere.modules.workspace.WorkspaceService; import com.assetsphere.modules.workspace.dto.WorkspaceRequests.*;
-@RestController @RequestMapping("/api/v1/workspaces") @Tag(name="Workspaces") class WorkspaceController { private final WorkspaceService service; private final CurrentUserProvider current; private final ClockProvider clock; WorkspaceController(WorkspaceService s,CurrentUserProvider c,ClockProvider k){service=s;current=c;clock=k;} @GetMapping ApiResponse<?> list(){return ApiResponse.success(service.findWorkspacesForUser(current.requireCurrentUser().id()),clock);} @PostMapping ResponseEntity<ApiResponse<?>> create(@Valid @RequestBody Create r){return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(service.create(current.requireCurrentUser().id(),r),clock));} @GetMapping("/{workspaceId}") ApiResponse<?> get(@PathVariable UUID workspaceId){return ApiResponse.success(service.get(current.requireCurrentUser().id(),workspaceId),clock);} @PatchMapping("/{workspaceId}") ApiResponse<?> update(@PathVariable UUID workspaceId,@Valid @RequestBody Update r){return ApiResponse.success(service.update(current.requireCurrentUser().id(),workspaceId,r),clock);} @GetMapping("/{workspaceId}/members") ApiResponse<?> members(@PathVariable UUID workspaceId){return ApiResponse.success(service.listMembers(current.requireCurrentUser().id(),workspaceId),clock);} @PostMapping("/{workspaceId}/invitations") ResponseEntity<ApiResponse<?>> invite(@PathVariable UUID workspaceId,@Valid @RequestBody Invite r){return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(service.invite(current.requireCurrentUser().id(),workspaceId,r),clock));} @PostMapping("/invitations/accept") ApiResponse<?> accept(@Valid @RequestBody Accept r){CurrentUser u=current.requireCurrentUser();return ApiResponse.success(service.accept(u.id(),u.email(),r),clock);} @PatchMapping("/{workspaceId}/members/{memberId}/role") ApiResponse<?> role(@PathVariable UUID workspaceId,@PathVariable UUID memberId,@Valid @RequestBody ChangeRole r){return ApiResponse.success(service.changeRole(current.requireCurrentUser().id(),workspaceId,memberId,r),clock);} @DeleteMapping("/{workspaceId}/members/{memberId}") ResponseEntity<Void> remove(@PathVariable UUID workspaceId,@PathVariable UUID memberId){service.remove(current.requireCurrentUser().id(),workspaceId,memberId);return ResponseEntity.noContent().build();} }
+
+import com.assetsphere.modules.common.security.CurrentUser;
+import com.assetsphere.modules.common.security.CurrentUserProvider;
+import com.assetsphere.modules.common.time.ClockProvider;
+import com.assetsphere.modules.common.web.ApiResponse;
+import com.assetsphere.modules.workspace.api.dto.request.AcceptWorkspaceInvitationRequest;
+import com.assetsphere.modules.workspace.api.dto.request.ChangeWorkspaceRoleRequest;
+import com.assetsphere.modules.workspace.api.dto.request.CreateWorkspaceRequest;
+import com.assetsphere.modules.workspace.api.dto.request.InviteWorkspaceMemberRequest;
+import com.assetsphere.modules.workspace.api.dto.request.UpdateWorkspaceRequest;
+import com.assetsphere.modules.workspace.application.WorkspaceInvitationService;
+import com.assetsphere.modules.workspace.application.WorkspaceMembershipService;
+import com.assetsphere.modules.workspace.application.WorkspaceService;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/workspaces")
+@Tag(name = "Workspaces")
+@RequiredArgsConstructor
+class WorkspaceController {
+
+    private final WorkspaceService workspaceService;
+    private final WorkspaceMembershipService membershipService;
+    private final WorkspaceInvitationService invitationService;
+    private final CurrentUserProvider currentUserProvider;
+    private final ClockProvider clock;
+
+    @GetMapping
+    ApiResponse<?> list() {
+        return ApiResponse.success(workspaceService.findWorkspacesForUser(currentUserProvider.requireCurrentUser().id()), clock);
+    }
+
+    @PostMapping
+    ResponseEntity<ApiResponse<?>> create(@Valid @RequestBody CreateWorkspaceRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(workspaceService.create(currentUserProvider.requireCurrentUser().id(), request), clock));
+    }
+
+    @GetMapping("/{workspaceId}")
+    ApiResponse<?> get(@PathVariable UUID workspaceId) {
+        return ApiResponse.success(workspaceService.get(currentUserProvider.requireCurrentUser().id(), workspaceId), clock);
+    }
+
+    @PatchMapping("/{workspaceId}")
+    ApiResponse<?> update(@PathVariable UUID workspaceId, @Valid @RequestBody UpdateWorkspaceRequest request) {
+        return ApiResponse.success(workspaceService.update(currentUserProvider.requireCurrentUser().id(), workspaceId, request), clock);
+    }
+
+    @GetMapping("/{workspaceId}/members")
+    ApiResponse<?> members(@PathVariable UUID workspaceId) {
+        return ApiResponse.success(membershipService.listMembers(currentUserProvider.requireCurrentUser().id(), workspaceId), clock);
+    }
+
+    @PostMapping("/{workspaceId}/invitations")
+    ResponseEntity<ApiResponse<?>> invite(
+            @PathVariable UUID workspaceId,
+            @Valid @RequestBody InviteWorkspaceMemberRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(invitationService.invite(currentUserProvider.requireCurrentUser().id(), workspaceId, request), clock));
+    }
+
+    @PostMapping("/invitations/accept")
+    ApiResponse<?> accept(@Valid @RequestBody AcceptWorkspaceInvitationRequest request) {
+        CurrentUser currentUser = currentUserProvider.requireCurrentUser();
+        return ApiResponse.success(invitationService.accept(currentUser.id(), currentUser.email(), request), clock);
+    }
+
+    @PatchMapping("/{workspaceId}/members/{memberId}/role")
+    ApiResponse<?> changeRole(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID memberId,
+            @Valid @RequestBody ChangeWorkspaceRoleRequest request
+    ) {
+        return ApiResponse.success(
+                membershipService.changeRole(currentUserProvider.requireCurrentUser().id(), workspaceId, memberId, request),
+                clock
+        );
+    }
+
+    @DeleteMapping("/{workspaceId}/members/{memberId}")
+    ResponseEntity<Void> remove(@PathVariable UUID workspaceId, @PathVariable UUID memberId) {
+        membershipService.remove(currentUserProvider.requireCurrentUser().id(), workspaceId, memberId);
+        return ResponseEntity.noContent().build();
+    }
+}

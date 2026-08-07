@@ -1,1 +1,7 @@
-package com.assetsphere.modules.workspace.domain; public enum WorkspaceStatus { ACTIVE, SUSPENDED, ARCHIVED }
+package com.assetsphere.modules.workspace.domain;
+
+public enum WorkspaceStatus {
+    ACTIVE,
+    SUSPENDED,
+    ARCHIVED
+}

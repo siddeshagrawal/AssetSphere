@@ -1,1 +1,0 @@
-package com.assetsphere.modules.asset; import java.util.*; import org.springframework.data.jpa.repository.JpaRepository; public interface IdempotencyRecordRepository extends JpaRepository<IdempotencyRecord,UUID>{ Optional<IdempotencyRecord> findByUserIdAndWorkspaceIdAndOperationTypeAndIdempotencyKey(UUID userId,UUID workspaceId,String operationType,String key); }

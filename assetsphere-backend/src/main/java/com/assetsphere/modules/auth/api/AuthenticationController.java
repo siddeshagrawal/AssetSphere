@@ -13,14 +13,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.assetsphere.modules.auth.AuthenticationService;
-import com.assetsphere.modules.auth.dto.LoginRequest;
-import com.assetsphere.modules.auth.dto.LogoutRequest;
-import com.assetsphere.modules.auth.dto.RefreshRequest;
-import com.assetsphere.modules.auth.dto.RegisterRequest;
-import com.assetsphere.modules.common.ApiResponse;
-import com.assetsphere.modules.common.ClockProvider;
-import com.assetsphere.modules.common.CurrentUserProvider;
+import com.assetsphere.modules.auth.application.AuthenticationService;
+import com.assetsphere.modules.auth.api.dto.request.LoginRequest;
+import com.assetsphere.modules.auth.api.dto.request.LogoutRequest;
+import com.assetsphere.modules.auth.api.dto.request.RefreshRequest;
+import com.assetsphere.modules.auth.api.dto.request.RegisterRequest;
+import com.assetsphere.modules.common.web.ApiResponse;
+import com.assetsphere.modules.common.time.ClockProvider;
+import com.assetsphere.modules.common.security.CurrentUserProvider;
 
 @RestController
 @RequestMapping("/api/v1/auth")

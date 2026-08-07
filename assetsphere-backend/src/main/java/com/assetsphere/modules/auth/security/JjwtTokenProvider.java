@@ -12,8 +12,8 @@ import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
-import com.assetsphere.modules.auth.TokenService;
-import com.assetsphere.modules.common.AuthenticationFailedException;
+import com.assetsphere.modules.auth.application.TokenService;
+import com.assetsphere.modules.common.exception.AuthenticationFailedException;
 
 @Component
 class JjwtTokenProvider implements TokenService {

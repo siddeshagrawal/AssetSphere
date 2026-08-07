@@ -14,9 +14,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 class JwtAuthenticationFilter extends OncePerRequestFilter {
-    private final com.assetsphere.modules.auth.TokenService tokenProvider;
+    private final com.assetsphere.modules.auth.application.TokenService tokenProvider;
 
-    JwtAuthenticationFilter(com.assetsphere.modules.auth.TokenService tokenProvider) {
+    JwtAuthenticationFilter(com.assetsphere.modules.auth.application.TokenService tokenProvider) {
         this.tokenProvider = tokenProvider;
     }
 

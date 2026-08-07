@@ -1,7 +1,0 @@
-package com.assetsphere.modules.common;
-
-public class AuthenticationFailedException extends RuntimeException {
-    public AuthenticationFailedException(String message) {
-        super(message);
-    }
-}

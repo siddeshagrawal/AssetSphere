@@ -8,7 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import lombok.Getter;
 
-import com.assetsphere.modules.common.BaseEntity;
+import com.assetsphere.modules.common.persistence.BaseEntity;
 
 @Getter
 @Entity

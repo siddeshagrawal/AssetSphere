@@ -3,6 +3,8 @@ spring:
     name: assetsphere-backend
   profiles:
     default: dev
+  modulith:
+    detection-strategy: explicitly-annotated
   jackson:
     default-property-inclusion: non_null
     deserialization:

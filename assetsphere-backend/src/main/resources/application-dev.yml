@@ -8,7 +8,12 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+  ai:
+    model:
+      embedding: ${ASSETSPHERE_AI_SPRING_EMBEDDING_MODEL:openai}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
 assetsphere:
   jwt:
     secret: ${ASSETSPHERE_JWT_SECRET:?ASSETSPHERE_JWT_SECRET must be configured}
@@ -19,5 +24,23 @@ assetsphere:
       access-key: ${MINIO_ACCESS_KEY:minioadmin}
       secret-key: ${MINIO_SECRET_KEY:minioadmin}
       bucket: ${MINIO_BUCKET:assetsphere}
+      auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:true}
   ai:
-    enabled: false
+    enabled: ${ASSETSPHERE_AI_ENABLED:false}
+    embedding:
+      enabled: ${ASSETSPHERE_AI_EMBEDDING_ENABLED:true}
+  billing:
+    payment-mode: ${ASSETSPHERE_PAYMENT_MODE:STRIPE}
+    stripe:
+      enabled: ${STRIPE_ENABLED:true}
+      secret-key: ${STRIPE_TEST_SECRET_KEY:}
+      publishable-key: ${STRIPE_TEST_PUBLISHABLE_KEY:}
+      webhook-secret: ${STRIPE_TEST_WEBHOOK_SECRET:}
+      pro-price-id: ${STRIPE_TEST_PRO_PRICE_ID:}
+    local-razorpay:
+      enabled: ${ASSETSPHERE_LOCAL_RAZORPAY_ENABLED:false}
+      variant: ${LOCAL_RAZORPAY_VARIANT:}
+      key-id: ${LOCAL_RAZORPAY_KEY_ID:}
+      key-secret: ${LOCAL_RAZORPAY_KEY_SECRET:}
+      webhook-secret: ${LOCAL_RAZORPAY_WEBHOOK_SECRET:}
+      base-url: ${LOCAL_RAZORPAY_BASE_URL:http://localhost:8082}

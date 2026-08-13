@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 import org.springframework.stereotype.Component;
 
 @Component
@@ -16,7 +18,7 @@ public class AssetChecksum {
             for (int read; (read = input.read(buffer)) != -1; ) {
                 digest.update(buffer, 0, read);
             }
-            return java.util.HexFormat.of().formatHex(digest.digest());
+            return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }

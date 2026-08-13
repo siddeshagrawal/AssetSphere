@@ -204,12 +204,12 @@ The pipeline is a sequential chain of workers managed by the `Processing` module
 *   `GET /api/v1/workspaces/{id}/members`: Lists members.
 
 ### Asset
-*   `POST /api/v1/workspaces/{wsId}/assets/upload`: Multi-part upload.
-*   `GET /api/v1/assets/{id}/versions`: List version history.
-*   `GET /api/v1/assets/{id}/download`: Streams latest version.
+*   `POST /api/v1/workspaces/{workspaceId}/assets`: Multipart upload with an `Idempotency-Key`.
+*   `GET /api/v1/workspaces/{workspaceId}/assets`: Lists workspace asset metadata.
+*   `GET /api/v1/workspaces/{workspaceId}/assets/{assetId}`: Returns asset metadata.
 
 ### Search
-*   `GET /api/v1/workspaces/{wsId}/search?q=query&type=hybrid`: Hybrid search results.
+*   `GET /api/v1/workspaces/{workspaceId}/search?q=query`: Workspace-scoped lexical search results.
 
 ---
 
@@ -307,3 +307,11 @@ com.assetsphere
 *   **Payments (OCP):** Add a `PaymentModule` that listens to `WorkspaceCreated` to initiate billing.
 *   **Workflow Automation:** A `WorkflowModule` can be added to orchestrate complex state transitions across assets.
 *   **Microservice Extraction:** The `Processing` module is already decoupled via Kafka; it can be moved to a separate repository with zero changes to the `Asset` module's domain logic.
+
+## 18. Deterministic Processing and Lexical Search (MVP)
+
+`AssetUploaded` is delivered through the transactional outbox, Kafka, the processing lock, and `processed_events`. The processing transaction streams the stored binary, extracts bounded PDF/DOCX text, persists one text-content row per AssetVersion, indexes metadata plus text in PostgreSQL `tsvector`/GIN, and only then marks the Asset and AssetVersion `READY`. Images complete without fabricated OCR text. OCR, embeddings, semantic search, and RAG remain deferred; asynchronous Intelligence v1 is described below.
+
+## 19. Intelligence v1
+
+After deterministic Processing reaches `READY`, it publishes `asset.ready-for-intelligence.v1` synchronously to the existing transactional outbox. Kafka contains identifiers only; Intelligence obtains bounded extracted content through Processing's public API. One Intelligence record is persisted per AssetVersion with its own lifecycle (`PENDING`, `PROCESSING`, `READY`, `FAILED`, `NOT_APPLICABLE`, or `DISABLED`), so an AI failure never changes an Asset that is already `READY`. The provider-neutral Intelligence port keeps Spring AI/OpenAI types in Infrastructure. Prompts treat document text as untrusted content, validated structured output persists only summary, key points, tags, and safe metadata, and embeddings/semantic search/RAG remain deferred.

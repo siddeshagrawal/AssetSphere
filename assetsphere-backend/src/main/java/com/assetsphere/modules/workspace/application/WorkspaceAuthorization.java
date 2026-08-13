@@ -17,17 +17,17 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class WorkspaceAuthorization implements WorkspaceAccessFacade {
 
-    private final WorkspaceMemberRepository members;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
 
     public boolean isActiveMember(UUID workspaceId, UUID userId) {
-        return members.findByWorkspaceIdAndUserId(workspaceId, userId)
+        return workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
                 .map(WorkspaceMember::isActive)
                 .orElse(false);
     }
 
     public boolean hasAnyRole(UUID workspaceId, UUID userId, WorkspaceRole... roles) {
         Set<WorkspaceRole> permittedRoles = Set.copyOf(Arrays.asList(roles));
-        return members.findByWorkspaceIdAndUserId(workspaceId, userId)
+        return workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
                 .filter(WorkspaceMember::isActive)
                 .map(member -> permittedRoles.contains(member.getRole()))
                 .orElse(false);

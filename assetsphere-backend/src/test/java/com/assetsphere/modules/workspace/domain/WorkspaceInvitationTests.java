@@ -50,6 +50,7 @@ class WorkspaceInvitationTests {
                 WorkspaceRole.MEMBER,
                 "hash",
                 UUID.randomUUID(),
+                "owner@example.com",
                 expiresAt
         );
     }

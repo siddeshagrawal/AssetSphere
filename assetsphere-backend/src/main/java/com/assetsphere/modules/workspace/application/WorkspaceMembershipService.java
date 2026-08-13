@@ -5,6 +5,7 @@ import com.assetsphere.modules.audit.api.AuditService;
 import com.assetsphere.modules.common.exception.AuthorizationDeniedException;
 import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
 import com.assetsphere.modules.common.exception.ResourceNotFoundException;
+import com.assetsphere.modules.common.security.UserIdentityDirectory;
 import com.assetsphere.modules.workspace.api.dto.request.ChangeWorkspaceRoleRequest;
 import com.assetsphere.modules.workspace.api.dto.response.WorkspaceMemberResponse;
 import com.assetsphere.modules.workspace.domain.MembershipStatus;
@@ -24,12 +25,15 @@ public class WorkspaceMembershipService {
     private final WorkspaceMemberRepository members;
     private final WorkspaceAuthorization authorization;
     private final AuditService audit;
+    private final UserIdentityDirectory userIdentities;
 
     @Transactional(readOnly = true)
     public List<WorkspaceMemberResponse> listMembers(UUID actorUserId, UUID workspaceId) {
         authorization.requireActiveMembership(workspaceId, actorUserId);
-        return members.findByWorkspaceIdAndStatus(workspaceId, MembershipStatus.ACTIVE).stream()
-                .map(this::toResponse)
+        List<WorkspaceMember> activeMembers = members.findByWorkspaceIdAndStatus(workspaceId, MembershipStatus.ACTIVE);
+        var identities = userIdentities.findByIds(activeMembers.stream().map(WorkspaceMember::getUserId).toList());
+        return activeMembers.stream()
+                .map(member -> toResponse(member, identities.get(member.getUserId())))
                 .toList();
     }
 
@@ -52,7 +56,7 @@ public class WorkspaceMembershipService {
 
         member.changeRole(requestedRole);
         audit.record(actorUserId, AuditAction.WORKSPACE_MEMBER_ROLE_CHANGED, workspaceId, "WORKSPACE_MEMBER", memberId, "{}");
-        return toResponse(member);
+        return toResponse(member, userIdentities.findByIds(List.of(member.getUserId())).get(member.getUserId()));
     }
 
     @Transactional
@@ -61,6 +65,10 @@ public class WorkspaceMembershipService {
         WorkspaceMember target = requireMember(workspaceId, memberId);
         WorkspaceMember requester = members.findByWorkspaceIdAndUserId(workspaceId, actorUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("Workspace member not found"));
+
+        if (target.getUserId().equals(actorUserId)) {
+            throw new BusinessRuleViolationException("Members cannot remove themselves from a workspace");
+        }
 
         if (requester.getRole() == WorkspaceRole.ADMIN && !canAdminRemove(target.getRole())) {
             throw new AuthorizationDeniedException("An administrator cannot remove an owner or another administrator");
@@ -90,10 +98,15 @@ public class WorkspaceMembershipService {
         return role == WorkspaceRole.MEMBER || role == WorkspaceRole.VIEWER || role == WorkspaceRole.AUDITOR;
     }
 
-    private WorkspaceMemberResponse toResponse(WorkspaceMember member) {
+    private WorkspaceMemberResponse toResponse(
+            WorkspaceMember member,
+            UserIdentityDirectory.UserIdentity identity
+    ) {
         return new WorkspaceMemberResponse(
                 member.getId(),
                 member.getUserId(),
+                identity == null ? null : identity.displayName(),
+                identity == null ? null : identity.email(),
                 member.getRole().name(),
                 member.getStatus().name(),
                 member.getJoinedAt()

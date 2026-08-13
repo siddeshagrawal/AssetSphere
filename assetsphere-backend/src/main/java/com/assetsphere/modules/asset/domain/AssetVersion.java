@@ -71,6 +71,65 @@ public class AssetVersion extends BaseEntity {
         return version;
     }
 
+    public static AssetVersion subsequent(
+            UUID assetId,
+            int versionNumber,
+            String filename,
+            String mimeType,
+            long size,
+            String checksum,
+            UUID storageObjectId,
+            UUID uploadedByUserId
+    ) {
+        if (versionNumber <= 1) {
+            throw new BusinessRuleViolationException("Subsequent version number must be greater than one");
+        }
+        AssetVersion version = initial(assetId, filename, mimeType, size, checksum, storageObjectId, uploadedByUserId);
+        version.versionNumber = versionNumber;
+        return version;
+    }
+
+    public void queueForProcessing() {
+        if (processingStatus == AssetProcessingStatus.UPLOADED) {
+            processingStatus = AssetProcessingStatus.QUEUED;
+        }
+    }
+
+    public void beginProcessing() {
+        requireProcessingStatus(AssetProcessingStatus.QUEUED, "Asset version must be queued before processing");
+        processingStatus = AssetProcessingStatus.PROCESSING;
+    }
+
+    public void completeProcessing() {
+        requireProcessingStatus(AssetProcessingStatus.PROCESSING, "Asset version must be processing before completion");
+        processingStatus = AssetProcessingStatus.READY;
+    }
+
+    public void failProcessing() {
+        if (processingStatus != AssetProcessingStatus.QUEUED && processingStatus != AssetProcessingStatus.PROCESSING) {
+            throw new BusinessRuleViolationException("Asset version processing cannot be marked failed from " + processingStatus);
+        }
+        processingStatus = AssetProcessingStatus.FAILED;
+    }
+
+    public void prepareProcessingRetry() {
+        if (processingStatus == AssetProcessingStatus.QUEUED) return;
+        requireProcessingStatus(AssetProcessingStatus.FAILED, "Only failed asset version processing can be retried");
+        processingStatus = AssetProcessingStatus.QUEUED;
+    }
+
+    public void prepareProcessingAttemptRetry() {
+        if (processingStatus == AssetProcessingStatus.PROCESSING) {
+            processingStatus = AssetProcessingStatus.QUEUED;
+        }
+    }
+
+    private void requireProcessingStatus(AssetProcessingStatus expected, String message) {
+        if (processingStatus != expected) {
+            throw new BusinessRuleViolationException(message);
+        }
+    }
+
     private static String requireText(String value, String message) {
         if (value == null || value.isBlank()) {
             throw new BusinessRuleViolationException(message);

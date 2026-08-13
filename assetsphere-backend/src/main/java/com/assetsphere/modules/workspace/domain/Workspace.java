@@ -7,11 +7,18 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import java.util.UUID;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
 @Table(name = "workspaces")
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Workspace extends BaseEntity {
 
     @Column(nullable = false, length = 160)
@@ -29,17 +36,6 @@ public class Workspace extends BaseEntity {
 
     @Column(name = "creator_user_id", nullable = false)
     private UUID creatorUserId;
-
-    protected Workspace() {
-    }
-
-    public Workspace(String name, String slug, String description, UUID creatorUserId) {
-        this.name = name;
-        this.slug = slug;
-        this.description = description;
-        this.creatorUserId = creatorUserId;
-        this.status = WorkspaceStatus.ACTIVE;
-    }
 
     public void update(String name, String description) {
         if (name != null) {

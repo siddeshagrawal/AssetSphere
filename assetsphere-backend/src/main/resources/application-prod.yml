@@ -5,24 +5,72 @@ spring:
     password: ${DB_PASSWORD}
   data:
     redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD}
+      url: ${REDIS_URL:redis://${REDIS_HOST}:${REDIS_PORT:6379}}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
+      ssl.endpoint.identification.algorithm: ${KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM:https}
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+  mail:
+    host: ${SMTP_HOST:}
   jpa:
     properties:
       hibernate:
         jdbc:
           time_zone: UTC
+server:
+  forward-headers-strategy: framework
 assetsphere:
+  cors:
+    allowed-origins: ${ASSETSPHERE_CORS_ALLOWED_ORIGINS:?ASSETSPHERE_CORS_ALLOWED_ORIGINS must be configured}
   jwt:
     secret: ${ASSETSPHERE_JWT_SECRET:?ASSETSPHERE_JWT_SECRET must be configured}
+  auth:
+    google:
+      enabled: ${GOOGLE_OAUTH_ENABLED:false}
+      client-id: ${GOOGLE_CLIENT_ID:}
+      client-secret: ${GOOGLE_CLIENT_SECRET:}
+      frontend-success-url: ${GOOGLE_FRONTEND_SUCCESS_URL:}
+      frontend-failure-url: ${GOOGLE_FRONTEND_FAILURE_URL:}
+  notification:
+    frontend-base-url: ${FRONTEND_BASE_URL:}
+    email:
+      enabled: ${EMAIL_ENABLED:false}
+      from: ${EMAIL_FROM:}
   storage:
     minio:
-      enabled: false
+      enabled: ${MINIO_ENABLED:true}
+      endpoint: ${MINIO_ENDPOINT}
+      access-key: ${MINIO_ACCESS_KEY}
+      secret-key: ${MINIO_SECRET_KEY}
+      bucket: ${MINIO_BUCKET:assetsphere}
+      auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:false}
   ai:
     enabled: ${ASSETSPHERE_AI_ENABLED:false}
+  billing:
+    payment-mode: ${ASSETSPHERE_PAYMENT_MODE:STRIPE}
+    stripe:
+      enabled: ${STRIPE_ENABLED:true}
+      secret-key: ${STRIPE_LIVE_SECRET_KEY:}
+      publishable-key: ${STRIPE_LIVE_PUBLISHABLE_KEY:}
+      webhook-secret: ${STRIPE_LIVE_WEBHOOK_SECRET:}
+      pro-price-id: ${STRIPE_LIVE_PRO_PRICE_ID:}
+    local-razorpay:
+      enabled: false
+      variant: ""
+      key-id: ""
+      key-secret: ""
+      webhook-secret: ""
+      base-url: ""
 logging:
   level:
     root: INFO

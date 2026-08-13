@@ -32,6 +32,9 @@ public class WorkspaceInvitation extends BaseEntity {
     @Column(name = "invited_by_user_id", nullable = false)
     private UUID invitedByUserId;
 
+    @Column(name = "invited_by_email", length = 320)
+    private String invitedByEmail;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
@@ -54,6 +57,7 @@ public class WorkspaceInvitation extends BaseEntity {
             WorkspaceRole role,
             String tokenHash,
             UUID invitedByUserId,
+            String invitedByEmail,
             Instant expiresAt
     ) {
         this.workspaceId = workspaceId;
@@ -61,6 +65,7 @@ public class WorkspaceInvitation extends BaseEntity {
         this.role = role;
         this.tokenHash = tokenHash;
         this.invitedByUserId = invitedByUserId;
+        this.invitedByEmail = invitedByEmail;
         this.expiresAt = expiresAt;
         this.status = InvitationStatus.PENDING;
     }
@@ -93,5 +98,17 @@ public class WorkspaceInvitation extends BaseEntity {
         if (isPending()) {
             status = InvitationStatus.EXPIRED;
         }
+    }
+
+    public void decline(Instant now) {
+        if (!isPending()) {
+            throw new BusinessRuleViolationException("Invitation is not pending");
+        }
+        if (isExpired(now)) {
+            expire();
+            throw new BusinessRuleViolationException("Invitation has expired");
+        }
+        status = InvitationStatus.DECLINED;
+        revokedAt = now;
     }
 }

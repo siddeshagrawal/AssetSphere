@@ -1,0 +1,217 @@
+   1: /**
+   2:  * AuthProvider — central auth session state.
+   3:  *
+   4:  * Session states:
+   5:  *   BOOTSTRAPPING  — app startup: attempting to restore session from
+   6:  *                    sessionStorage refresh token. Protected routes MUST
+   7:  *                    NOT render authenticated UI until this resolves.
+   8:  *   AUTHENTICATED  — access token in memory, user data loaded.
+   9:  *   UNAUTHENTICATED — no valid session; user must log in.
+  10:  *
+  11:  * Token storage contract (enforced here and in token-store.ts):
+  12:  *   Access token  → memory only (module variable in token-store.ts)
+  13:  *   Refresh token → sessionStorage only
+  14:  *   Neither token is ever written to localStorage or logged.
+  15:  */
+  16: 
+  17: import React, {
+  18:   createContext,
+  19:   useCallback,
+  20:   useContext,
+  21:   useEffect,
+  22:   useReducer,
+  23: } from "react";
+  24: import type { UserResponse } from "@/types/auth";
+  25: import type { WorkspaceSummary } from "@/types/workspace";
+  26: import {
+  27:   setAccessToken,
+  28:   setRefreshToken,
+  29:   clearAllTokens,
+  30:   getRefreshToken,
+  31: } from "@/lib/token-store";
+  32: import { registerSessionExpiredCallback } from "@/lib/api-client";
+  33: import { queryClient } from "@/lib/query-client";
+  34: import * as authApi from "@/api/auth.api";
+  35: 
+  36: // ── Types ────────────────────────────────────────────────────────────────────
+  37: 
+  38: export type SessionStatus = "BOOTSTRAPPING" | "AUTHENTICATED" | "UNAUTHENTICATED";
+  39: 
+  40: interface AuthenticatedSession {
+  41:   status: "AUTHENTICATED";
+  42:   user: UserResponse;
+  43:   workspaces: WorkspaceSummary[];
+  44: }
+  45: 
+  46: interface UnauthenticatedSession {
+  47:   status: "UNAUTHENTICATED";
+  48:   user: null;
+  49:   workspaces: null;
+  50: }
+  51: 
+  52: interface BootstrappingSession {
+  53:   status: "BOOTSTRAPPING";
+  54:   user: null;
+  55:   workspaces: null;
+  56: }
+  57: 
+  58: type SessionState =
+  59:   | BootstrappingSession
+  60:   | AuthenticatedSession
+  61:   | UnauthenticatedSession;
+  62: 
+  63: type SessionAction =
+  64:   | { type: "SET_AUTHENTICATED"; user: UserResponse; workspaces: WorkspaceSummary[] }
+  65:   | { type: "SET_UNAUTHENTICATED" }
+  66:   | { type: "UPDATE_WORKSPACES"; workspaces: WorkspaceSummary[] };
+  67: 
+  68: function sessionReducer(state: SessionState, action: SessionAction): SessionState {
+  69:   switch (action.type) {
+  70:     case "SET_AUTHENTICATED":
+  71:       return {
+  72:         status: "AUTHENTICATED",
+  73:         user: action.user,
+  74:         workspaces: action.workspaces,
+  75:       };
+  76:     case "SET_UNAUTHENTICATED":
+  77:       return { status: "UNAUTHENTICATED", user: null, workspaces: null };
+  78:     case "UPDATE_WORKSPACES":
+  79:       if (state.status !== "AUTHENTICATED") return state;
+  80:       return { ...state, workspaces: action.workspaces };
+  81:     default:
+  82:       return state;
+  83:   }
+  84: }
+  85: 
+  86: // ── Context ──────────────────────────────────────────────────────────────────
+  87: 
+  88: interface AuthContextValue {
+  89:   session: SessionState;
+  90:   /** Authenticate: store tokens, load /me, set AUTHENTICATED. */
+  91:   handleLoginSuccess: (accessToken: string, refreshToken: string) => Promise<void>;
+  92:   /** Full logout: POST /auth/logout, clear tokens/cache, set UNAUTHENTICATED. */
+  93:   handleLogout: () => Promise<void>;
+  94:   /** Re-fetch /auth/me and update workspaces in session (e.g. after workspace creation). */
+  95:   refreshSession: () => Promise<void>;
+  96: }
+  97: 
+  98: const AuthContext = createContext<AuthContextValue | null>(null);
+  99: 
+ 100: // ── Provider ─────────────────────────────────────────────────────────────────
+ 101: 
+ 102: export function AuthProvider({ children }: { children: React.ReactNode }) {
+ 103:   const [session, dispatch] = useReducer(sessionReducer, {
+ 104:     status: "BOOTSTRAPPING",
+ 105:     user: null,
+ 106:     workspaces: null,
+ 107:   });
+ 108: 
+ 109:   /** Shared logic: load /me and mark session as AUTHENTICATED. */
+ 110:   const loadUserAndAuthenticate = useCallback(async () => {
+ 111:     const { user, workspaces } = await authApi.me();
+ 112:     dispatch({ type: "SET_AUTHENTICATED", user, workspaces });
+ 113:   }, []);
+ 114: 
+ 115:   /** Called by login + bootstrap to complete session establishment. */
+ 116:   const handleLoginSuccess = useCallback(
+ 117:     async (accessToken: string, refreshToken: string) => {
+ 118:       setAccessToken(accessToken);
+ 119:       setRefreshToken(refreshToken);
+ 120:       await loadUserAndAuthenticate();
+ 121:     },
+ 122:     [loadUserAndAuthenticate]
+ 123:   );
+ 124: 
+ 125:   const clearSession = useCallback(() => {
+ 126:     clearAllTokens();
+ 127:     queryClient.clear();
+ 128:     dispatch({ type: "SET_UNAUTHENTICATED" });
+ 129:   }, []);
+ 130: 
+ 131:   const handleLogout = useCallback(async () => {
+ 132:     const refreshToken = getRefreshToken();
+ 133:     if (refreshToken) {
+ 134:       try {
+ 135:         await authApi.logout({ refreshToken });
+ 136:       } catch {
+ 137:         // Proceed with local cleanup even if server-side logout fails
+ 138:       }
+ 139:     }
+ 140:     clearSession();
+ 141:   }, [clearSession]);
+ 142: 
+ 143:   const refreshSession = useCallback(async () => {
+ 144:     try {
+ 145:       await loadUserAndAuthenticate();
+ 146:     } catch {
+ 147:       // If /me fails here the interceptor will have already handled the 401
+ 148:     }
+ 149:   }, [loadUserAndAuthenticate]);
+ 150: 
+ 151:   // ── Bootstrap: attempt to restore session from sessionStorage refresh token ─
+ 152: 
+ 153:   useEffect(() => {
+ 154:     // Register the callback that the Axios interceptor fires on terminal refresh failure
+ 155:     registerSessionExpiredCallback(() => {
+ 156:       dispatch({ type: "SET_UNAUTHENTICATED" });
+ 157:     });
+ 158: 
+ 159:     const existingRefreshToken = getRefreshToken();
+ 160: 
+ 161:     if (!existingRefreshToken) {
+ 162:       dispatch({ type: "SET_UNAUTHENTICATED" });
+ 163:       return;
+ 164:     }
+ 165: 
+ 166:     let cancelled = false;
+ 167: 
+ 168:     (async () => {
+ 169:       try {
+ 170:         // Rotate tokens on every bootstrap to extend session freshness
+ 171:         const authResult = await authApi.refresh({ refreshToken: existingRefreshToken });
+ 172:         if (cancelled) return;
+ 173: 
+ 174:         setAccessToken(authResult.accessToken);
+ 175:         setRefreshToken(authResult.refreshToken);
+ 176: 
+ 177:         await loadUserAndAuthenticate();
+ 178:         if (cancelled) return;
+ 179:       } catch {
+ 180:         if (cancelled) return;
+ 181:         clearSession();
+ 182:       }
+ 183:     })();
+ 184: 
+ 185:     return () => {
+ 186:       cancelled = true;
+ 187:     };
+ 188:   // eslint-disable-next-line react-hooks/exhaustive-deps
+ 189:   }, []); // Run once on mount only
+ 190: 
+ 191:   return (
+ 192:     <AuthContext.Provider
+ 193:       value={{ session, handleLoginSuccess, handleLogout, refreshSession }}
+ 194:     >
+ 195:       {children}
+ 196:     </AuthContext.Provider>
+ 197:   );
+ 198: }
+ 199: 
+ 200: // ── Hook ─────────────────────────────────────────────────────────────────────
+ 201: 
+ 202: export function useAuth(): AuthContextValue {
+ 203:   const ctx = useContext(AuthContext);
+ 204:   if (!ctx) {
+ 205:     throw new Error("useAuth must be used within <AuthProvider>");
+ 206:   }
+ 207:   return ctx;
+ 208: }
+ 209: 
+ 210: /** Convenience: returns the current user (only valid in AUTHENTICATED state). */
+ 211: export function useCurrentUser(): UserResponse {
+ 212:   const { session } = useAuth();
+ 213:   if (session.status !== "AUTHENTICATED" || !session.user) {
+ 214:     throw new Error("useCurrentUser called outside authenticated session");
+ 215:   }
+ 216:   return session.user;
+ 217: }

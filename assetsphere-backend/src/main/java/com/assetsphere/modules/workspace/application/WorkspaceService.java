@@ -12,6 +12,7 @@ import com.assetsphere.modules.workspace.api.dto.request.UpdateWorkspaceRequest;
 import com.assetsphere.modules.workspace.api.dto.response.WorkspaceResponse;
 import com.assetsphere.modules.workspace.domain.MembershipStatus;
 import com.assetsphere.modules.workspace.domain.Workspace;
+import com.assetsphere.modules.workspace.domain.WorkspaceStatus;
 import com.assetsphere.modules.workspace.domain.WorkspaceMember;
 import com.assetsphere.modules.workspace.domain.WorkspaceRole;
 import com.assetsphere.modules.workspace.domain.SlugNormalizer;
@@ -32,31 +33,38 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class WorkspaceService implements WorkspaceFacade {
 
-    private final WorkspaceRepository workspaces;
-    private final WorkspaceMemberRepository members;
-    private final WorkspaceAuthorization authorization;
-    private final ClockProvider clock;
-    private final AuditService audit;
+    private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final WorkspaceAuthorization workspaceAuthorization;
+    private final ClockProvider clockProvider;
+    private final AuditService auditService;
 
     @Override
     @Transactional
     public WorkspaceSummary createPersonalWorkspace(UUID userId, String displayName) {
         String slug = "personal-" + userId;
-        Workspace workspace = workspaces.save(new Workspace(displayName.trim() + " Workspace", slug, null, userId));
-        members.save(new WorkspaceMember(workspace.getId(), userId, WorkspaceRole.OWNER, userId, clock.now()));
-        audit.record(userId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{\"personal\":true}");
+        Workspace workspace = workspaceRepository.save(
+                Workspace.builder()
+                        .name(displayName.trim() + " Workspace")
+                        .slug(slug)
+                        .status(WorkspaceStatus.ACTIVE)
+                        .creatorUserId(userId)
+                        .build());
+        workspaceMemberRepository.save(
+                new WorkspaceMember(workspace.getId(), userId, WorkspaceRole.OWNER, userId, clockProvider.now()));
+        auditService.record(userId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{\"personal\":true}");
         return toSummary(workspace, WorkspaceRole.OWNER);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<WorkspaceSummary> findWorkspacesForUser(UUID userId) {
-        List<WorkspaceMember> memberships = members.findByUserIdAndStatusOrderByCreatedAtAsc(userId, MembershipStatus.ACTIVE);
+        List<WorkspaceMember> memberships = workspaceMemberRepository.findByUserIdAndStatusOrderByCreatedAtAsc(userId, MembershipStatus.ACTIVE);
         if (memberships.isEmpty()) {
             return List.of();
         }
 
-        Map<UUID, Workspace> workspacesById = workspaces.findAllById(
+        Map<UUID, Workspace> workspacesById = workspaceRepository.findAllById(
                         memberships.stream().map(WorkspaceMember::getWorkspaceId).toList()
                 ).stream()
                 .collect(Collectors.toMap(Workspace::getId, Function.identity()));
@@ -73,20 +81,21 @@ public class WorkspaceService implements WorkspaceFacade {
     @Transactional
     public WorkspaceResponse create(UUID actorUserId, CreateWorkspaceRequest request) {
         try {
-            Workspace workspace = workspaces.save(new Workspace(
-                    request.name().trim(),
-                    SlugNormalizer.normalize(request.slug()),
-                    request.description(),
-                    actorUserId
-            ));
-            members.save(new WorkspaceMember(
+            Workspace workspace = workspaceRepository.save(Workspace.builder()
+                    .name(request.name().trim())
+                    .slug(SlugNormalizer.normalize(request.slug()))
+                    .description(request.description())
+                    .status(WorkspaceStatus.ACTIVE)
+                    .creatorUserId(actorUserId)
+                    .build());
+            workspaceMemberRepository.save(new WorkspaceMember(
                     workspace.getId(),
                     actorUserId,
                     WorkspaceRole.OWNER,
                     actorUserId,
-                    clock.now()
+                    clockProvider.now()
             ));
-            audit.record(actorUserId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{}");
+            auditService.record(actorUserId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{}");
             return toResponse(workspace);
         } catch (DataIntegrityViolationException exception) {
             throw new BusinessRuleViolationException("Workspace slug is already in use");
@@ -95,21 +104,21 @@ public class WorkspaceService implements WorkspaceFacade {
 
     @Transactional(readOnly = true)
     public WorkspaceResponse get(UUID actorUserId, UUID workspaceId) {
-        authorization.requireActiveMembership(workspaceId, actorUserId);
+        workspaceAuthorization.requireActiveMembership(workspaceId, actorUserId);
         return toResponse(requireWorkspace(workspaceId));
     }
 
     @Transactional
     public WorkspaceResponse update(UUID actorUserId, UUID workspaceId, UpdateWorkspaceRequest request) {
-        authorization.requireAnyRole(workspaceId, actorUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        workspaceAuthorization.requireAnyRole(workspaceId, actorUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
         Workspace workspace = requireWorkspace(workspaceId);
         workspace.update(trimToNull(request.name()), request.description());
-        audit.record(actorUserId, AuditAction.WORKSPACE_UPDATED, workspaceId, "WORKSPACE", workspaceId, "{}");
+        auditService.record(actorUserId, AuditAction.WORKSPACE_UPDATED, workspaceId, "WORKSPACE", workspaceId, "{}");
         return toResponse(workspace);
     }
 
     private Workspace requireWorkspace(UUID workspaceId) {
-        return workspaces.findById(workspaceId)
+        return workspaceRepository.findById(workspaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Workspace not found"));
     }
 

@@ -44,6 +44,12 @@ public class User extends BaseEntity {
         this.emailVerified = false;
     }
 
+    public static User oauth(String normalizedEmail, String passwordHash, String displayName) {
+        User user = new User(normalizedEmail, passwordHash, displayName);
+        user.emailVerified = true;
+        return user;
+    }
+
     public boolean prepareForLogin(Instant now) {
         if (status == AccountStatus.LOCKED && lockedUntil != null && !lockedUntil.isAfter(now)) {
             status = AccountStatus.ACTIVE;

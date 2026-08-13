@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -16,27 +17,40 @@ public class UploadFingerprint {
 
     public String create(UUID userId, UUID workspaceId, String filename, String mimeType, long size,
                          String checksum, String displayName, String description) {
+        return create(userId, workspaceId, OPERATION, null, filename, mimeType, size, checksum, displayName, description);
+    }
+
+    public String createVersion(UUID userId, UUID workspaceId, UUID assetId, String filename,
+                                String mimeType, long size, String checksum) {
+        return create(userId, workspaceId, "ASSET_VERSION_UPLOAD", assetId, filename, mimeType, size, checksum, null, null);
+    }
+
+    private String create(UUID userId, UUID workspaceId, String operation, UUID assetId, String filename,
+                          String mimeType, long size, String checksum, String displayName, String description) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            appendField(digest, Objects.requireNonNull(userId, "userId is required").toString());
-            appendField(digest, Objects.requireNonNull(workspaceId, "workspaceId is required").toString());
-            appendField(digest, OPERATION);
-            appendField(digest, filename);
-            appendField(digest, mimeType);
-            appendField(digest, Long.toString(size));
-            appendField(digest, checksum);
-            appendField(digest, displayName);
-            appendField(digest, description);
-            return java.util.HexFormat.of().formatHex(digest.digest());
+            MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+            appendField(messageDigest, Objects.requireNonNull(userId, "userId is required").toString());
+            appendField(messageDigest, Objects.requireNonNull(workspaceId, "workspaceId is required").toString());
+            appendField(messageDigest, operation);
+            if (assetId != null) {
+                appendField(messageDigest, assetId.toString());
+            }
+            appendField(messageDigest, filename);
+            appendField(messageDigest, mimeType);
+            appendField(messageDigest, Long.toString(size));
+            appendField(messageDigest, checksum);
+            appendField(messageDigest, displayName);
+            appendField(messageDigest, description);
+            return HexFormat.of().formatHex(messageDigest.digest());
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
     }
 
-    private void appendField(MessageDigest digest, String value) {
+    private void appendField(MessageDigest messageDigest, String value) {
         byte[] bytes = normalize(value).getBytes(StandardCharsets.UTF_8);
-        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
-        digest.update(bytes);
+        messageDigest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        messageDigest.update(bytes);
     }
 
     private String normalize(String value) {

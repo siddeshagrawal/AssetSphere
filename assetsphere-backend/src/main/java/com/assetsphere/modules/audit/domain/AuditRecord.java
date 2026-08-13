@@ -2,20 +2,21 @@ package com.assetsphere.modules.audit.domain;
 
 import com.assetsphere.modules.audit.api.AuditAction;
 
-import java.util.UUID;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
-import lombok.Getter;
-
 import com.assetsphere.modules.common.persistence.BaseEntity;
+import java.util.UUID;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
-@Getter
 @Entity
 @Table(name = "audit_records")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AuditRecord extends BaseEntity {
 
     @Column(name = "actor_user_id")
@@ -40,17 +41,31 @@ public class AuditRecord extends BaseEntity {
     @Column
     private String metadata;
 
-    protected AuditRecord() {
+    public static AuditRecord create(
+            UUID actorUserId,
+            AuditAction action,
+            UUID workspaceId,
+            String resourceType,
+            UUID resourceId,
+            String correlationId,
+            String metadata
+    ) {
+        if (action == null) {
+            throw new IllegalArgumentException("Audit action is required");
+        }
+        if (resourceType == null || resourceType.isBlank()) {
+            throw new IllegalArgumentException("Audit resource type is required");
+        }
+
+        AuditRecord record = new AuditRecord();
+        record.actorUserId = actorUserId;
+        record.action = action;
+        record.workspaceId = workspaceId;
+        record.resourceType = resourceType.trim();
+        record.resourceId = resourceId;
+        record.correlationId = correlationId;
+        record.metadata = metadata;
+        return record;
     }
 
-    public AuditRecord(UUID actorUserId, AuditAction action, UUID workspaceId, String resourceType,
-                       UUID resourceId, String correlationId, String metadata) {
-        this.actorUserId = actorUserId;
-        this.action = action;
-        this.workspaceId = workspaceId;
-        this.resourceType = resourceType;
-        this.resourceId = resourceId;
-        this.correlationId = correlationId;
-        this.metadata = metadata;
-    }
 }

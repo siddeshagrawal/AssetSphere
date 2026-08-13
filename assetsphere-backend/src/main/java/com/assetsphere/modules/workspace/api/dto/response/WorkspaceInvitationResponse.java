@@ -8,6 +8,8 @@ public record WorkspaceInvitationResponse(
         String inviteeEmail,
         String role,
         Instant expiresAt,
-        String invitationToken
+        String invitationToken,
+        String invitationUrl,
+        String emailDeliveryStatus
 ) {
 }

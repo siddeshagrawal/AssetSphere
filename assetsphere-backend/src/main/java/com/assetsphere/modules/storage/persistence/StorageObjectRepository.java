@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface StorageObjectRepository extends JpaRepository<StorageObject, UUID> {
 
     Optional<StorageObject> findByWorkspaceIdAndChecksumSha256(UUID workspaceId, String checksumSha256);
+
+    boolean existsByWorkspaceIdAndChecksumSha256(UUID workspaceId, String checksumSha256);
 }

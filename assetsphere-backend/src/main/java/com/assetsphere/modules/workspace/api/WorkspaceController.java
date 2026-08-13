@@ -13,6 +13,7 @@ import com.assetsphere.modules.workspace.application.WorkspaceInvitationService;
 import com.assetsphere.modules.workspace.application.WorkspaceMembershipService;
 import com.assetsphere.modules.workspace.application.WorkspaceService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +27,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @RequestMapping("/api/v1/workspaces")
 @Tag(name = "Workspaces")
+@SecurityRequirement(name = "bearerAuth")
 @RequiredArgsConstructor
 class WorkspaceController {
 
@@ -70,14 +73,26 @@ class WorkspaceController {
             @PathVariable UUID workspaceId,
             @Valid @RequestBody InviteWorkspaceMemberRequest request
     ) {
+        CurrentUser currentUser = currentUserProvider.requireCurrentUser();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(invitationService.invite(currentUserProvider.requireCurrentUser().id(), workspaceId, request), clock));
+                .body(ApiResponse.success(invitationService.invite(currentUser.id(), currentUser.email(), workspaceId, request), clock));
+    }
+
+    @GetMapping("/invitations/validate")
+    ApiResponse<?> validateInvitation(@RequestParam String token) {
+        return ApiResponse.success(invitationService.validate(token), clock);
     }
 
     @PostMapping("/invitations/accept")
     ApiResponse<?> accept(@Valid @RequestBody AcceptWorkspaceInvitationRequest request) {
         CurrentUser currentUser = currentUserProvider.requireCurrentUser();
         return ApiResponse.success(invitationService.accept(currentUser.id(), currentUser.email(), request), clock);
+    }
+
+    @PostMapping("/invitations/decline")
+    ApiResponse<Void> decline(@Valid @RequestBody AcceptWorkspaceInvitationRequest request) {
+        invitationService.decline(currentUserProvider.requireCurrentUser().email(), request);
+        return ApiResponse.success(null, clock);
     }
 
     @PatchMapping("/{workspaceId}/members/{memberId}/role")

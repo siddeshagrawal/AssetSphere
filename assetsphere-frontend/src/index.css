@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Surfaces ─────────────────────────────────────── */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* ── Primary accent — Indigo ──────────────────────── */
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    /* ── Secondary — slate tint ───────────────────────── */
+    --secondary: 215 28% 95%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* ── Muted ────────────────────────────────────────── */
+    --muted: 215 28% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* ── Accent ───────────────────────────────────────── */
+    --accent: 243 75% 97%;
+    --accent-foreground: 243 75% 40%;
+
+    /* ── Destructive ──────────────────────────────────── */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* ── Border / Ring / Input ────────────────────────── */
+    --border: 215 28% 91%;
+    --input: 215 28% 91%;
+    --ring: 243 75% 59%;
+
+    /* ── Sidebar ──────────────────────────────────────── */
+    --sidebar: 222 47% 11%;
+    --sidebar-foreground: 215 28% 88%;
+    --sidebar-muted: 217 33% 17%;
+    --sidebar-muted-foreground: 215 16% 57%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-accent: 243 75% 20%;
+    --sidebar-accent-foreground: 243 75% 80%;
+
+    /* ── Status colors ────────────────────────────────── */
+    --status-ready: 142 71% 45%;
+    --status-processing: 38 92% 50%;
+    --status-failed: 0 72% 51%;
+    --status-queued: 215 16% 57%;
+    --status-partial: 271 81% 56%;
+
+    /* ── Radius ───────────────────────────────────────── */
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    min-width: 320px;
+    overflow-wrap: anywhere;
+  }
+
+  html, body, #root { min-height: 100%; }
+
+  pre, code { max-width: 100%; overflow-x: auto; }
+
+  /* Smooth focus ring for keyboard navigation */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Remove default focus for mouse/touch interactions */
+  :focus:not(:focus-visible) {
+    @apply outline-none;
+  }
+}
+
+@layer utilities {
+  /* Skeleton shimmer gradient */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 25%,
+      hsl(var(--secondary)) 50%,
+      hsl(var(--muted)) 75%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}

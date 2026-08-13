@@ -7,13 +7,17 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+
 import java.time.Instant;
 import java.util.UUID;
-import lombok.Getter;
 
-@Getter
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
 @Entity
 @Table(name = "assets")
+@Getter
+@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
 public class Asset extends BaseEntity {
 
     @Column(name = "workspace_id", nullable = false)
@@ -46,16 +50,8 @@ public class Asset extends BaseEntity {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
-    protected Asset() {
-    }
-
-    public static Asset initialUpload(
-            UUID workspaceId,
-            UUID ownerUserId,
-            String displayName,
-            String description,
-            AssetType assetType
-    ) {
+    public static Asset initialUpload(UUID workspaceId, UUID ownerUserId, String displayName,
+                                      String description, AssetType assetType) {
         Asset asset = new Asset();
         asset.workspaceId = requireIdentifier(workspaceId, "Workspace is required");
         asset.ownerUserId = requireIdentifier(ownerUserId, "Owner is required");
@@ -74,6 +70,68 @@ public class Asset extends BaseEntity {
         }
         this.lifecycleStatus = AssetLifecycleStatus.DELETED;
         this.deletedAt = requireValue(deletedAt, "Deletion time is required");
+    }
+
+    public int appendVersion(AssetType latestAssetType) {
+        if (lifecycleStatus == AssetLifecycleStatus.DELETED) {
+            throw new BusinessRuleViolationException("Cannot add a version to a deleted asset");
+        }
+        latestVersionNumber++;
+        assetType = requireValue(latestAssetType, "Asset type is required");
+        processingStatus = AssetProcessingStatus.UPLOADED;
+        return latestVersionNumber;
+    }
+
+    public void updateMetadata(String displayName, String description) {
+        this.displayName = requireText(displayName, "Display name is required");
+        if (this.displayName.length() > 255) {
+            throw new BusinessRuleViolationException("Display name is too long");
+        }
+        if (description != null && description.strip().length() > 2000) {
+            throw new BusinessRuleViolationException("Description is too long");
+        }
+        this.description = description == null || description.isBlank() ? null : description.strip();
+    }
+
+    public void queueForProcessing() {
+        if (processingStatus == AssetProcessingStatus.UPLOADED) {
+            processingStatus = AssetProcessingStatus.QUEUED;
+        }
+    }
+
+    public void beginProcessing() {
+        requireProcessingStatus(AssetProcessingStatus.QUEUED, "Asset must be queued before processing");
+        processingStatus = AssetProcessingStatus.PROCESSING;
+    }
+
+    public void completeProcessing() {
+        requireProcessingStatus(AssetProcessingStatus.PROCESSING, "Asset must be processing before completion");
+        processingStatus = AssetProcessingStatus.READY;
+    }
+
+    public void failProcessing() {
+        if (processingStatus != AssetProcessingStatus.QUEUED && processingStatus != AssetProcessingStatus.PROCESSING) {
+            throw new BusinessRuleViolationException("Asset processing cannot be marked failed from " + processingStatus);
+        }
+        processingStatus = AssetProcessingStatus.FAILED;
+    }
+
+    public void prepareProcessingRetry() {
+        if (processingStatus == AssetProcessingStatus.QUEUED) return;
+        requireProcessingStatus(AssetProcessingStatus.FAILED, "Only failed asset processing can be retried");
+        processingStatus = AssetProcessingStatus.QUEUED;
+    }
+
+    public void prepareProcessingAttemptRetry() {
+        if (processingStatus == AssetProcessingStatus.PROCESSING) {
+            processingStatus = AssetProcessingStatus.QUEUED;
+        }
+    }
+
+    private void requireProcessingStatus(AssetProcessingStatus expected, String message) {
+        if (processingStatus != expected) {
+            throw new BusinessRuleViolationException(message);
+        }
     }
 
     private static String requireText(String value, String message) {

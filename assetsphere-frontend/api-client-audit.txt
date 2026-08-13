@@ -1,0 +1,225 @@
+   1: /**
+   2:  * Central Axios instance for AssetSphere.
+   3:  *
+   4:  * Responsibilities:
+   5:  *   1. Inject Authorization header from in-memory access token.
+   6:  *   2. Parse typed ErrorResponse → ApiError for all error status codes.
+   7:  *   3. Coordinate single-flight token refresh on 401, then retry the
+   8:  *      original request exactly once.
+   9:  *
+  10:  * Dependency order (no circular imports):
+  11:  *   token-store  ← pure storage, no imports from this module
+  12:  *   api-client   ← imports token-store only
+  13:  *   *.api.ts     ← imports api-client
+  14:  *   features/*   ← imports *.api.ts
+  15:  *
+  16:  * The auth session context is NOT imported here. Instead, when a refresh
+  17:  * fails the client calls the `onSessionExpired` callback registered at
+  18:  * app startup via `registerSessionExpiredCallback`.
+  19:  */
+  20: 
+  21: import axios, {
+  22:   type AxiosInstance,
+  23:   type AxiosRequestConfig,
+  24:   type AxiosResponse,
+  25:   type InternalAxiosRequestConfig,
+  26: } from "axios";
+  27: import type { ApiResponse, ErrorResponse } from "@/types/api";
+  28: import { ApiError } from "@/types/api";
+  29: import {
+  30:   getAccessToken,
+  31:   getRefreshToken,
+  32:   setAccessToken,
+  33:   setRefreshToken,
+  34:   clearAllTokens,
+  35: } from "./token-store";
+  36: 
+  37: // ── Session-expired callback ─────────────────────────────────────────────────
+  38: 
+  39: type SessionExpiredCallback = () => void;
+  40: let _onSessionExpired: SessionExpiredCallback | null = null;
+  41: 
+  42: /**
+  43:  * Register a callback that fires when a token refresh fails and the session
+  44:  * must be cleared. Called once during app bootstrap (AuthProvider).
+  45:  */
+  46: export function registerSessionExpiredCallback(cb: SessionExpiredCallback): void {
+  47:   _onSessionExpired = cb;
+  48: }
+  49: 
+  50: // ── Single-flight refresh coordinator ───────────────────────────────────────
+  51: 
+  52: /**
+  53:  * At most one in-flight refresh at a time.
+  54:  * Concurrent 401 responses share this promise and await the same result.
+  55:  */
+  56: let _refreshPromise: Promise<string> | null = null;
+  57: 
+  58: async function performRefresh(): Promise<string> {
+  59:   const refreshToken = getRefreshToken();
+  60:   if (!refreshToken) {
+  61:     throw new Error("No refresh token available");
+  62:   }
+  63: 
+  64:   // Use a bare axios call — NOT the intercepted instance — to avoid
+  65:   // triggering our own 401 interceptor recursively.
+  66:   interface RefreshPayload {
+  67:     tokenType: string;
+  68:     accessToken: string;
+  69:     accessTokenExpiresInSeconds: number;
+  70:     refreshToken: string;
+  71:     refreshTokenExpiresInSeconds: number;
+  72:   }
+  73:   const response = await axios.post<ApiResponse<RefreshPayload>>(
+  74:     `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1/auth/refresh`,
+  75:     { refreshToken },
+  76:     { headers: { "Content-Type": "application/json" } }
+  77:   );
+  78: 
+  79:   const { accessToken, refreshToken: newRefreshToken } = response.data.data;
+  80:   setAccessToken(accessToken);
+  81:   setRefreshToken(newRefreshToken);
+  82:   return accessToken;
+  83: }
+  84: 
+  85: /**
+  86:  * Ensures only one refresh runs at a time.
+  87:  * All concurrent callers await the same promise.
+  88:  */
+  89: function ensureSingleFlightRefresh(): Promise<string> {
+  90:   if (_refreshPromise === null) {
+  91:     _refreshPromise = performRefresh().finally(() => {
+  92:       _refreshPromise = null;
+  93:     });
+  94:   }
+  95:   return _refreshPromise;
+  96: }
+  97: 
+  98: // ── Axios instance ───────────────────────────────────────────────────────────
+  99: 
+ 100: export const apiClient: AxiosInstance = axios.create({
+ 101:   baseURL: import.meta.env.VITE_API_BASE_URL ?? "",
+ 102:   headers: { "Content-Type": "application/json" },
+ 103:   timeout: 30_000,
+ 104: });
+ 105: 
+ 106: // ── Request interceptor: attach access token ─────────────────────────────────
+ 107: 
+ 108: apiClient.interceptors.request.use(
+ 109:   (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
+ 110:     const token = getAccessToken();
+ 111:     if (token) {
+ 112:       config.headers.set("Authorization", `Bearer ${token}`);
+ 113:     }
+ 114:     return config;
+ 115:   }
+ 116: );
+ 117: 
+ 118: // ── Response interceptor: error parsing + 401 → refresh → retry ─────────────
+ 119: 
+ 120: // Flag stored on the config to prevent retrying more than once.
+ 121: const RETRY_FLAG = "__as_retried__";
+ 122: 
+ 123: apiClient.interceptors.response.use(
+ 124:   // Success: unwrap ApiResponse<T> transparently
+ 125:   (response: AxiosResponse) => response,
+ 126: 
+ 127:   async (error: unknown) => {
+ 128:     if (!axios.isAxiosError(error)) {
+ 129:       return Promise.reject(new ApiError({
+ 130:         code: "CLIENT_ERROR",
+ 131:         message: error instanceof Error ? error.message : "An unexpected error occurred",
+ 132:         status: 0,
+ 133:         timestamp: new Date().toISOString(),
+ 134:         correlationId: null,
+ 135:         violations: [],
+ 136:       }));
+ 137:     }
+ 138: 
+ 139:     const originalConfig = error.config as (AxiosRequestConfig & { [RETRY_FLAG]?: boolean }) | undefined;
+ 140:     const status = error.response?.status;
+ 141: 
+ 142:     // ── 401 → attempt token refresh ──────────────────────────────────────────
+ 143:     if (
+ 144:       status === 401 &&
+ 145:       originalConfig &&
+ 146:       !originalConfig[RETRY_FLAG] &&
+ 147:       // Never retry the refresh or auth endpoints themselves
+ 148:       !originalConfig.url?.includes("/api/v1/auth/refresh") &&
+ 149:       !originalConfig.url?.includes("/api/v1/auth/login") &&
+ 150:       !originalConfig.url?.includes("/api/v1/auth/register")
+ 151:     ) {
+ 152:       originalConfig[RETRY_FLAG] = true;
+ 153: 
+ 154:       try {
+ 155:         await ensureSingleFlightRefresh();
+ 156:         // Retry the original request once with the new token
+ 157:         return apiClient(originalConfig);
+ 158:       } catch {
+ 159:         clearAllTokens();
+ 160:         _onSessionExpired?.();
+ 161:         return Promise.reject(buildApiError(error));
+ 162:       }
+ 163:     }
+ 164: 
+ 165:     // ── All other errors: parse into typed ApiError ──────────────────────────
+ 166:     return Promise.reject(buildApiError(error));
+ 167:   }
+ 168: );
+ 169: 
+ 170: // ── Error builder ────────────────────────────────────────────────────────────
+ 171: 
+ 172: function buildApiError(error: unknown): ApiError {
+ 173:   if (!axios.isAxiosError(error)) {
+ 174:     return new ApiError({
+ 175:       code: "CLIENT_ERROR",
+ 176:       message: error instanceof Error ? error.message : "An unexpected error occurred",
+ 177:       status: 0,
+ 178:       timestamp: new Date().toISOString(),
+ 179:       correlationId: null,
+ 180:       violations: [],
+ 181:     });
+ 182:   }
+ 183: 
+ 184:   const retryAfter = error.response?.headers?.["retry-after"];
+ 185:   const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : null;
+ 186: 
+ 187:   // Try to parse the structured ErrorResponse body
+ 188:   const data = error.response?.data as Partial<ErrorResponse> | undefined;
+ 189:   if (data?.code && data?.message && typeof data.status === "number") {
+ 190:     return new ApiError(
+ 191:       {
+ 192:         code: data.code,
+ 193:         message: data.message,
+ 194:         status: data.status,
+ 195:         timestamp: data.timestamp ?? new Date().toISOString(),
+ 196:         correlationId: data.correlationId ?? null,
+ 197:         violations: data.violations ?? [],
+ 198:       },
+ 199:       isNaN(retryAfterSeconds ?? NaN) ? null : retryAfterSeconds
+ 200:     );
+ 201:   }
+ 202: 
+ 203:   // Fallback for non-structured errors (e.g. network timeouts, CORS)
+ 204:   return new ApiError(
+ 205:     {
+ 206:       code: "REQUEST_FAILED",
+ 207:       message: error.message || "Request failed",
+ 208:       status: error.response?.status ?? 0,
+ 209:       timestamp: new Date().toISOString(),
+ 210:       correlationId: null,
+ 211:       violations: [],
+ 212:     },
+ 213:     isNaN(retryAfterSeconds ?? NaN) ? null : retryAfterSeconds
+ 214:   );
+ 215: }
+ 216: 
+ 217: // ── Typed response helper ────────────────────────────────────────────────────
+ 218: 
+ 219: /**
+ 220:  * Unwraps ApiResponse<T>.data from a successful Axios response.
+ 221:  * All api/*.ts functions use this helper so callers receive T directly.
+ 222:  */
+ 223: export function unwrap<T>(response: AxiosResponse<ApiResponse<T>>): T {
+ 224:   return response.data.data;
+ 225: }

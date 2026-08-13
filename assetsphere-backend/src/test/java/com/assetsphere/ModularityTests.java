@@ -26,10 +26,14 @@ class ModularityTests {
                 "modules.asset",
                 "modules.audit",
                 "modules.auth",
+                "modules.billing",
                 "modules.common",
+                "modules.intelligence",
                 "modules.processing",
+                "modules.search",
                 "modules.storage",
                 "modules.workspace"
         );
     }
+
 }

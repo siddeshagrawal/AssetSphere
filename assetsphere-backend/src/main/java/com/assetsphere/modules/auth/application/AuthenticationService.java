@@ -9,8 +9,8 @@ import java.util.Base64;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,26 +39,26 @@ import com.assetsphere.modules.workspace.api.WorkspaceFacade;
 public class AuthenticationService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-    private final UserRepository users;
-    private final RefreshTokenRepository refreshTokens;
-    private final PasswordEncoder passwords;
-    private final TokenService jwt;
-    private final long refreshTokenExpirationSeconds;
-    private final int loginMaxFailures;
-    private final long lockDurationSeconds;
-    private final ClockProvider clock;
-    private final WorkspaceFacade workspaces;
-    private final AuditService audit;
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final TokenService tokenService;
+    private final AuthProperties authProperties;
+    private final ClockProvider clockProvider;
+    private final WorkspaceFacade workspaceFacade;
+    private final AuditService auditService;
 
     @Transactional
     public RegistrationResponse register(RegisterRequest request) {
         String email = EmailNormalizer.normalize(request.email());
-        if (users.findByNormalizedEmail(email).isPresent())
+        if (userRepository.findByNormalizedEmail(email).isPresent())
             throw new BusinessRuleViolationException("An account already exists for this email");
         try {
-            User user = users.saveAndFlush(new User(email, passwords.encode(request.password()), request.displayName().trim()));
-            var workspace = workspaces.createPersonalWorkspace(user.getId(), user.getDisplayName());
-            audit.record(user.getId(), AuditAction.USER_REGISTERED, workspace.id(), "USER", user.getId(), "{}");
+            User user = userRepository.saveAndFlush(
+                    new User(email, passwordEncoder.encode(request.password()), request.displayName().trim()));
+            var workspace = workspaceFacade.createPersonalWorkspace(user.getId(), user.getDisplayName());
+            auditService.record(user.getId(), AuditAction.USER_REGISTERED, workspace.id(),
+                    "USER", user.getId(), "{}");
             return new RegistrationResponse(UserResponse.from(user), workspace);
         } catch (DataIntegrityViolationException exception) {
             throw new BusinessRuleViolationException("An account already exists for this email");
@@ -68,62 +68,74 @@ public class AuthenticationService {
     @Transactional
     public AuthenticationResponse login(LoginRequest request, String clientMetadata) {
         String email = EmailNormalizer.normalize(request.email());
-        Instant now = clock.now();
-        User user = users.findByNormalizedEmail(email).orElse(null);
-        if (user == null || !user.prepareForLogin(now) || !passwords.matches(request.password(), user.getPasswordHash())) {
+        Instant now = clockProvider.now();
+        User user = userRepository.findByNormalizedEmail(email).orElse(null);
+        if (user == null || !user.prepareForLogin(now) || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             if (user != null) {
-                user.recordFailedLogin(now, loginMaxFailures, lockDurationSeconds);
-                audit.record(user.getId(), AuditAction.USER_LOGIN_FAILED, null, "USER", user.getId(), "{}");
+                user.recordFailedLogin(now, authProperties.getLoginMaxFailures(), authProperties.getLockDuration().toSeconds());
+                auditService.record(user.getId(), AuditAction.USER_LOGIN_FAILED, null, "USER", user.getId(), "{}");
             }
             throw new AuthenticationFailedException("Invalid email or password");
         }
         user.recordSuccessfulLogin(now);
-        audit.record(user.getId(), AuditAction.USER_LOGIN_SUCCEEDED, null, "USER", user.getId(), "{}");
+        auditService.record(user.getId(), AuditAction.USER_LOGIN_SUCCEEDED, null, "USER", user.getId(), "{}");
         return issueTokens(user, clientMetadata, now);
     }
 
     @Transactional
     public AuthenticationResponse refresh(RefreshRequest request, String clientMetadata) {
-        Instant now = clock.now();
+        Instant now = clockProvider.now();
         String hash = hash(request.refreshToken());
-        RefreshToken previous = refreshTokens.findByTokenHash(hash).orElseThrow(() ->
+        RefreshToken previous = refreshTokenRepository.findByTokenHashForUpdate(hash).orElseThrow(() ->
                 new AuthenticationFailedException("Invalid refresh token"));
         if (previous.getRevokedAt() != null)
             throw new AuthenticationFailedException("Refresh token reuse detected");
         if (previous.isExpired(now))
             throw new AuthenticationFailedException("Refresh token has expired");
-        User user = users.findById(previous.getUserId()).orElseThrow(() ->
+        User user = userRepository.findById(previous.getUserId()).orElseThrow(() ->
                 new AuthenticationFailedException("Invalid refresh token"));
         if (!user.prepareForLogin(now))
             throw new AuthenticationFailedException("Account is not active");
         AuthenticationResponse response = issueTokens(user, clientMetadata, now);
-        RefreshToken replacement = refreshTokens.findByTokenHash(hash(response.refreshToken())).orElseThrow();
+        RefreshToken replacement = refreshTokenRepository.findByTokenHash(hash(response.refreshToken())).orElseThrow();
         previous.revoke(now, replacement.getId());
+        try {
+            refreshTokenRepository.saveAndFlush(previous);
+        } catch (OptimisticLockingFailureException exception) {
+            throw new AuthenticationFailedException("Refresh token was already consumed");
+        }
         return response;
     }
 
     @Transactional
     public void logout(UUID userId, String rawRefreshToken) {
-        refreshTokens.findByTokenHash(hash(rawRefreshToken)).filter(token -> token.getUserId().equals(userId))
-                .ifPresent(token -> token.revoke(clock.now(), null));
-        audit.record(userId, AuditAction.USER_LOGGED_OUT, null, "USER",
+        refreshTokenRepository.findByTokenHash(hash(rawRefreshToken)).filter(token -> token.getUserId().equals(userId))
+                .ifPresent(token -> token.revoke(clockProvider.now(), null));
+        auditService.record(userId, AuditAction.USER_LOGGED_OUT, null, "USER",
                 userId, "{}");
     }
 
     @Transactional(readOnly = true)
     public CurrentUserResponse currentUser(UUID userId) {
-        User user = users.findById(userId).orElseThrow(() ->
+        User user = userRepository.findById(userId).orElseThrow(() ->
                 new AuthenticationFailedException("Authenticated user no longer exists"));
-        return new CurrentUserResponse(UserResponse.from(user), workspaces.findWorkspacesForUser(userId));
+        return new CurrentUserResponse(UserResponse.from(user), workspaceFacade.findWorkspacesForUser(userId));
+    }
+
+    @Transactional
+    public AuthenticationResponse issueOAuthSession(UUID userId, String clientMetadata) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new AuthenticationFailedException("OAuth account is unavailable"));
+        if (!user.prepareForLogin(clockProvider.now())) throw new AuthenticationFailedException("Account is not active");
+        return issueTokens(user, clientMetadata, clockProvider.now());
     }
 
     private AuthenticationResponse issueTokens(User user, String clientMetadata, Instant now) {
-        var access = jwt.issueAccessToken(user.getId(), user.getNormalizedEmail());
+        var access = tokenService.issueAccessToken(user.getId(), user.getNormalizedEmail());
         String rawRefresh = newRefreshToken();
-        refreshTokens.save(new RefreshToken(user.getId(), hash(rawRefresh), now,
-                now.plusSeconds(refreshTokenExpirationSeconds), clientMetadata));
+        refreshTokenRepository.save(new RefreshToken(user.getId(), hash(rawRefresh), now,
+                now.plus(authProperties.getRefreshTokenTtl()), clientMetadata));
         return new AuthenticationResponse("Bearer", access.value(), access.expiresInSeconds(),
-                rawRefresh, refreshTokenExpirationSeconds);
+                rawRefresh, authProperties.getRefreshTokenTtl().toSeconds());
     }
 
     private String newRefreshToken() {

@@ -52,16 +52,32 @@ public class OutboxEvent extends BaseEntity {
     @Column(name = "last_error", length = MAX_LAST_ERROR_LENGTH)
     private String lastError;
 
+    @Column(name = "claim_owner", length = 128)
+    private String claimOwner;
+
+    @Column(name = "claimed_at")
+    private Instant claimedAt;
+
     protected OutboxEvent() {
     }
 
-    public static OutboxEvent createPending(UUID aggregateId, String payload) {
+    public static OutboxEvent createPending(
+            String aggregateType,
+            UUID aggregateId,
+            String eventType,
+            int eventVersion,
+            String topic,
+            String payload
+    ) {
         OutboxEvent event = new OutboxEvent();
-        event.aggregateType = "ASSET";
+        event.aggregateType = requireText(aggregateType, "Aggregate type is required");
         event.aggregateId = requireValue(aggregateId, "Aggregate is required");
-        event.eventType = "asset.uploaded.v1";
-        event.eventVersion = 1;
-        event.topic = "assetsphere.asset.asset-uploaded.v1";
+        event.eventType = requireText(eventType, "Event type is required");
+        if (eventVersion <= 0) {
+            throw new BusinessRuleViolationException("Event version must be positive");
+        }
+        event.eventVersion = eventVersion;
+        event.topic = requireText(topic, "Topic is required");
         event.payload = requireText(payload, "Payload is required");
         event.status = OutboxStatus.PENDING;
         event.nextAttemptAt = Instant.now();
@@ -71,6 +87,12 @@ public class OutboxEvent extends BaseEntity {
     public void markProcessing() {
         requireStatus(OutboxStatus.PENDING, "Only pending events can be claimed");
         status = OutboxStatus.PROCESSING;
+    }
+
+    public void markPublished(String owner, Instant publishedAt) {
+        requireClaimOwner(owner);
+        markPublished(publishedAt);
+        clearClaim();
     }
 
     public void markPublished(Instant publishedAt) {
@@ -87,6 +109,7 @@ public class OutboxEvent extends BaseEntity {
         this.nextAttemptAt = requireValue(nextAttemptAt, "Next attempt time is required");
         this.lastError = boundError(error);
         status = OutboxStatus.PENDING;
+        clearClaim();
     }
 
     public void markFailed(Instant failedAt, String error) {
@@ -96,6 +119,28 @@ public class OutboxEvent extends BaseEntity {
         status = OutboxStatus.FAILED;
         nextAttemptAt = requireValue(failedAt, "Failure time is required");
         lastError = boundError(error);
+        clearClaim();
+    }
+
+    public void recordRetryableFailure(String owner, Instant nextAttemptAt, String error) {
+        requireClaimOwner(owner);
+        recordRetryableFailure(nextAttemptAt, error);
+    }
+
+    public void markFailed(String owner, Instant failedAt, String error) {
+        requireClaimOwner(owner);
+        markFailed(failedAt, error);
+    }
+
+    private void requireClaimOwner(String owner) {
+        if (owner == null || !owner.equals(claimOwner)) {
+            throw new BusinessRuleViolationException("Outbox event is no longer claimed by this publisher");
+        }
+    }
+
+    private void clearClaim() {
+        claimOwner = null;
+        claimedAt = null;
     }
 
     private void requireStatus(OutboxStatus expected, String message) {

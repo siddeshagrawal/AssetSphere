@@ -40,6 +40,18 @@ class WorkspaceAuthorizationTests {
     }
 
     @Test
+    void hidesWorkspaceFromRemovedMember() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        WorkspaceMember removedMember = member(workspaceId, userId, WorkspaceRole.MEMBER);
+        removedMember.remove();
+        when(members.findByWorkspaceIdAndUserId(workspaceId, userId)).thenReturn(Optional.of(removedMember));
+
+        assertThatThrownBy(() -> authorization.requireActiveMembership(workspaceId, userId))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
     void rejectsMemberForOwnerOnlyAction() {
         UUID workspaceId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();

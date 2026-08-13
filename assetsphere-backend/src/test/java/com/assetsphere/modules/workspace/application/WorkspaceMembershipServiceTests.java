@@ -3,11 +3,14 @@ package com.assetsphere.modules.workspace.application;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.assetsphere.modules.audit.api.AuditService;
 import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
+import com.assetsphere.modules.common.security.UserIdentityDirectory;
 import com.assetsphere.modules.workspace.api.WorkspaceRoleView;
 import com.assetsphere.modules.workspace.api.dto.request.ChangeWorkspaceRoleRequest;
 import com.assetsphere.modules.workspace.domain.MembershipStatus;
@@ -23,7 +26,8 @@ class WorkspaceMembershipServiceTests {
 
     private final WorkspaceMemberRepository members = mock(WorkspaceMemberRepository.class);
     private final WorkspaceAuthorization authorization = mock(WorkspaceAuthorization.class);
-    private final WorkspaceMembershipService service = new WorkspaceMembershipService(members, authorization, mock(AuditService.class));
+    private final WorkspaceMembershipService service = new WorkspaceMembershipService(
+            members, authorization, mock(AuditService.class), mock(UserIdentityDirectory.class));
 
     @Test
     void preventsDemotionOfFinalActiveOwner() {
@@ -51,6 +55,32 @@ class WorkspaceMembershipServiceTests {
 
         assertThatThrownBy(() -> service.remove(ownerId, workspaceId, ownerId))
                 .isInstanceOf(BusinessRuleViolationException.class)
-                .hasMessage("A workspace must retain an active owner");
+                .hasMessage("Members cannot remove themselves from a workspace");
+    }
+
+    @Test
+    void preventsSelfRemoval() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        WorkspaceMember member = new WorkspaceMember(workspaceId, actorId, WorkspaceRole.ADMIN, UUID.randomUUID(), Instant.now());
+        when(members.findById(member.getId())).thenReturn(Optional.of(member));
+        when(members.findByWorkspaceIdAndUserId(workspaceId, actorId)).thenReturn(Optional.of(member));
+
+        assertThatThrownBy(() -> service.remove(actorId, workspaceId, member.getId()))
+                .isInstanceOf(BusinessRuleViolationException.class)
+                .hasMessage("Members cannot remove themselves from a workspace");
+    }
+
+    @Test
+    void rejectsRemovalWithoutManagementPermission() {
+        UUID workspaceId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        doThrow(new com.assetsphere.modules.common.exception.AuthorizationDeniedException("Insufficient workspace permission"))
+                .when(authorization).requireAnyRole(workspaceId, actorId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+
+        assertThatThrownBy(() -> service.remove(actorId, workspaceId, memberId))
+                .isInstanceOf(com.assetsphere.modules.common.exception.AuthorizationDeniedException.class);
+        verify(members, org.mockito.Mockito.never()).findById(any());
     }
 }

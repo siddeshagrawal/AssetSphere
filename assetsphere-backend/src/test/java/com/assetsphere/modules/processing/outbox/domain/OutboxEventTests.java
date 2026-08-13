@@ -73,6 +73,7 @@ class OutboxEventTests {
     }
 
     private OutboxEvent event() {
-        return OutboxEvent.createPending(UUID.randomUUID(), "{}");
+        return OutboxEvent.createPending("ASSET", UUID.randomUUID(), "asset.uploaded.v1", 1,
+                "assets.uploaded.v1", "{}");
     }
 }

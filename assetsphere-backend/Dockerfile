@@ -6,6 +6,7 @@ RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+ENV SPRING_PROFILES_ACTIVE=prod
 RUN useradd --system --create-home assetsphere
 COPY --from=build /workspace/target/assetsphere-backend-*.jar app.jar
 USER assetsphere

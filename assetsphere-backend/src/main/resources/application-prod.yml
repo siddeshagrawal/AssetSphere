@@ -60,6 +60,8 @@ assetsphere:
       auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:false}
   ai:
     enabled: ${ASSETSPHERE_AI_ENABLED:false}
+    embedding:
+      enabled: ${ASSETSPHERE_AI_EMBEDDING_ENABLED:${ASSETSPHERE_AI_ENABLED:false}}
   billing:
     payment-mode: ${ASSETSPHERE_PAYMENT_MODE:STRIPE}
     stripe:

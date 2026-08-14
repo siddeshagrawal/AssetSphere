@@ -7,6 +7,7 @@ import com.assetsphere.modules.billing.api.PaymentStatus;
 import com.assetsphere.modules.billing.domain.BillingPayment;
 import com.assetsphere.modules.billing.persistence.BillingPaymentRepository;
 import com.assetsphere.modules.billing.persistence.SubscriptionRepository;
+import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
 import com.assetsphere.modules.common.exception.ConflictException;
 import com.assetsphere.modules.common.exception.ResourceNotFoundException;
 import com.assetsphere.modules.common.time.ClockProvider;
@@ -30,8 +31,11 @@ class BillingPaymentTransaction {
     @Transactional
     PaymentReservation reserve(UUID workspaceId, UUID userId, String idempotencyKey, PaymentGateway gateway,
                                long amountMinor, String currency) {
-        subscriptions.findLockedByWorkspaceId(workspaceId)
+        var subscription = subscriptions.findLockedByWorkspaceId(workspaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Workspace subscription was not found"));
+        if (subscription.getPlan() != com.assetsphere.modules.billing.api.Plan.FREE) {
+            throw new BusinessRuleViolationException("This workspace already has a paid plan");
+        }
         Optional<BillingPayment> replay = payments.findByWorkspaceIdAndIdempotencyKey(workspaceId, idempotencyKey);
         if (replay.isPresent()) return new PaymentReservation(replay.get(), false);
         Optional<BillingPayment> pending = payments

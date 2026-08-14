@@ -34,6 +34,8 @@ public class Subscription extends BaseEntity {
     private String externalSubscriptionId;
     @Column(name = "current_period_start", nullable = false)
     private Instant currentPeriodStart;
+    @Column(name = "usage_period_start", nullable = false)
+    private Instant usagePeriodStart;
     @Column(name = "current_period_end", nullable = false)
     private Instant currentPeriodEnd;
     @Column(name = "cancel_at_period_end", nullable = false)
@@ -45,13 +47,16 @@ public class Subscription extends BaseEntity {
         subscription.plan = Plan.FREE;
         subscription.status = SubscriptionStatus.ACTIVE;
         subscription.currentPeriodStart = periodStart;
+        subscription.usagePeriodStart = periodStart;
         subscription.currentPeriodEnd = periodEnd;
         return subscription;
     }
 
     public void advancePeriod(Instant start, Instant end) {
         currentPeriodStart = start;
+        usagePeriodStart = start;
         currentPeriodEnd = end;
+        if (plan == Plan.FREE) status = SubscriptionStatus.ACTIVE;
         cancelAtPeriodEnd = false;
     }
 
@@ -71,19 +76,29 @@ public class Subscription extends BaseEntity {
         this.paymentProvider = paymentProvider;
         externalSubscriptionId = externalPaymentId;
         currentPeriodStart = start;
+        usagePeriodStart = start;
         currentPeriodEnd = end;
         cancelAtPeriodEnd = false;
     }
 
     public void renew(Instant end) {
+        currentPeriodStart = currentPeriodEnd;
+        usagePeriodStart = currentPeriodStart;
         currentPeriodEnd = end;
         status = SubscriptionStatus.ACTIVE;
     }
 
     public void synchronizePeriod(Instant start, Instant end) {
+        advanceUsagePeriodWhenNewer(start);
         if (start != null) currentPeriodStart = start;
         if (end != null) currentPeriodEnd = end;
         status = SubscriptionStatus.ACTIVE;
+    }
+
+    public void synchronizePeriodWithoutActivation(Instant start, Instant end) {
+        advanceUsagePeriodWhenNewer(start);
+        if (start != null) currentPeriodStart = start;
+        if (end != null) currentPeriodEnd = end;
     }
 
     public void recoverMissingStripeSubscriptionId(String externalId) {
@@ -108,6 +123,7 @@ public class Subscription extends BaseEntity {
         paymentProvider = null;
         externalSubscriptionId = null;
         currentPeriodStart = start;
+        usagePeriodStart = start;
         currentPeriodEnd = end;
         cancelAtPeriodEnd = false;
     }
@@ -124,12 +140,19 @@ public class Subscription extends BaseEntity {
 
     public void markPastDue() { status = SubscriptionStatus.PAST_DUE; }
 
-    public void cancel() {
+    public void cancel(Instant freePeriodStart, Instant freePeriodEnd) {
         plan = Plan.FREE;
-        status = SubscriptionStatus.CANCELED;
+        status = SubscriptionStatus.ACTIVE;
         paymentProvider = null;
         externalSubscriptionId = null;
+        currentPeriodStart = freePeriodStart;
+        usagePeriodStart = freePeriodStart;
+        currentPeriodEnd = freePeriodEnd;
         cancelAtPeriodEnd = false;
+    }
+
+    private void advanceUsagePeriodWhenNewer(Instant start) {
+        if (start != null && !start.isBefore(currentPeriodEnd)) usagePeriodStart = start;
     }
 
     private void requireExternalIdentity(String value) {

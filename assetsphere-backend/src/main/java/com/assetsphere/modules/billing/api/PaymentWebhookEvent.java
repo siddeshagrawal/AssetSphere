@@ -6,12 +6,21 @@ public record PaymentWebhookEvent(PaymentProvider provider, String eventId, Stri
                                   String providerOrderId, String providerPaymentId, long amountMinor,
                                   String currency, PaymentWebhookStatus status, Instant occurredAt,
                                   boolean verified, Instant periodStart, Instant periodEnd,
-                                  Boolean cancelAtPeriodEnd) {
+                                  Boolean cancelAtPeriodEnd, ProviderSubscriptionStatus subscriptionStatus) {
+    public PaymentWebhookEvent(PaymentProvider provider, String eventId, String eventType,
+                               String providerOrderId, String providerPaymentId, long amountMinor,
+                               String currency, PaymentWebhookStatus status, Instant occurredAt,
+                               boolean verified, Instant periodStart, Instant periodEnd,
+                               Boolean cancelAtPeriodEnd) {
+        this(provider, eventId, eventType, providerOrderId, providerPaymentId, amountMinor, currency,
+                status, occurredAt, verified, periodStart, periodEnd, cancelAtPeriodEnd, null);
+    }
+
     public PaymentWebhookEvent(PaymentProvider provider, String eventId, String eventType,
                                String providerOrderId, String providerPaymentId, long amountMinor,
                                String currency, PaymentWebhookStatus status, Instant occurredAt,
                                boolean verified) {
         this(provider, eventId, eventType, providerOrderId, providerPaymentId, amountMinor, currency,
-                status, occurredAt, verified, null, null, null);
+                status, occurredAt, verified, null, null, null, null);
     }
 }

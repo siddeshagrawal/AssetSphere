@@ -6,6 +6,7 @@ import com.assetsphere.modules.billing.api.Plan;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentStatus;
 import com.assetsphere.modules.billing.api.PlanEntitlements;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.billing.api.UsageMetric;
 import com.assetsphere.modules.billing.api.WorkspaceResourceUsageProvider;
 import com.assetsphere.modules.billing.api.WorkspacePlanProvider;
@@ -21,7 +22,6 @@ import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
 import com.assetsphere.modules.common.exception.ConflictException;
 import com.assetsphere.modules.common.time.ClockProvider;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Arrays;
@@ -239,17 +239,32 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
     @Transactional
     public void cancelPaidPlan(UUID workspaceId, PaymentProvider provider, String externalSubscriptionId) {
         Subscription subscription = lockedSubscription(workspaceId);
-        if (subscription.matches(provider.name(), externalSubscriptionId)) subscription.cancel();
+        if (subscription.matches(provider.name(), externalSubscriptionId)) {
+            Instant now = clock.now();
+            subscription.cancel(monthStart(now), nextMonth(now));
+        }
     }
 
     @Transactional
     public void synchronizeStripeSubscription(UUID workspaceId, String externalSubscriptionId,
                                                Instant periodStart, Instant periodEnd,
-                                               boolean cancelAtPeriodEnd) {
+                                               boolean cancelAtPeriodEnd,
+                                               ProviderSubscriptionStatus providerStatus) {
         Subscription subscription = lockedSubscription(workspaceId);
-        if (subscription.matches(PaymentProvider.STRIPE.name(), externalSubscriptionId)) {
+        if (!subscription.matches(PaymentProvider.STRIPE.name(), externalSubscriptionId)
+                || providerStatus == null || providerStatus == ProviderSubscriptionStatus.UNKNOWN) {
+            return;
+        }
+        if (providerStatus.terminal()) {
+            Instant now = clock.now();
+            subscription.cancel(monthStart(now), nextMonth(now));
+        } else if (providerStatus.entitled()) {
             subscription.synchronizePeriod(periodStart, periodEnd);
             subscription.synchronizeCancellation(cancelAtPeriodEnd);
+        } else {
+            subscription.synchronizePeriodWithoutActivation(periodStart, periodEnd);
+            subscription.synchronizeCancellation(cancelAtPeriodEnd);
+            subscription.markPastDue();
         }
     }
 
@@ -262,8 +277,13 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
             subscription = subscriptions.findByWorkspaceId(workspaceId).orElseThrow();
         }
         if (!now.isBefore(subscription.getCurrentPeriodEnd())) {
-            if (subscription.getPlan() == Plan.PRO) subscription.expireToFree(monthStart(now), nextMonth(now));
-            else subscription.advancePeriod(monthStart(now), nextMonth(now));
+            if (subscription.getPlan() == Plan.PRO) {
+                if (provider(subscription) != PaymentProvider.STRIPE) {
+                    subscription.expireToFree(monthStart(now), nextMonth(now));
+                }
+            } else {
+                subscription.advancePeriod(monthStart(now), nextMonth(now));
+            }
         }
         return subscription;
     }
@@ -278,8 +298,8 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
                 .orElseThrow(() -> new IllegalStateException("Workspace resource usage provider is not configured"));
     }
 
-    private LocalDate periodStart(Subscription subscription) {
-        return subscription.getCurrentPeriodStart().atZone(ZoneOffset.UTC).toLocalDate();
+    private Instant periodStart(Subscription subscription) {
+        return subscription.getUsagePeriodStart();
     }
 
     private Instant monthStart(Instant now) {

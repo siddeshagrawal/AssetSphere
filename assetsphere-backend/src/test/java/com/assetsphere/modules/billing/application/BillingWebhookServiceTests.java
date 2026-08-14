@@ -10,8 +10,10 @@ import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentWebhookEvent;
 import com.assetsphere.modules.billing.api.PaymentWebhookStatus;
 import com.assetsphere.modules.billing.api.Plan;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.billing.domain.BillingPayment;
 import com.assetsphere.modules.billing.persistence.BillingPaymentRepository;
+import com.assetsphere.modules.billing.persistence.BillingProviderEventRepository;
 import com.assetsphere.modules.billing.persistence.BillingWebhookRepository;
 import com.assetsphere.modules.common.time.ClockProvider;
 import java.time.Instant;
@@ -39,7 +41,7 @@ class BillingWebhookServiceTests {
         Fixture fixture = fixture(event);
         when(fixture.webhookEvents.claim(PaymentProvider.RAZORPAY_LOCAL, "event_123", "PAYMENT_STATUS_CHANGED",
                 fixture.payloadHash, NOW)).thenReturn(true);
-        when(fixture.payments.findByProviderAndProviderOrderId(PaymentProvider.RAZORPAY_LOCAL, "order_123"))
+        when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.RAZORPAY_LOCAL, "order_123"))
                 .thenReturn(Optional.of(payment));
 
         fixture.service.handle(PaymentProvider.RAZORPAY_LOCAL, "event_123", "{}", "signature");
@@ -60,7 +62,7 @@ class BillingWebhookServiceTests {
         Fixture fixture = fixture(event);
         when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, "event_123", event.eventType(),
                 fixture.payloadHash, NOW)).thenReturn(true);
-        when(fixture.payments.findByProviderAndProviderOrderId(PaymentProvider.STRIPE, "checkout_123"))
+        when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.STRIPE, "checkout_123"))
                 .thenReturn(Optional.of(payment));
 
         fixture.service.handle(PaymentProvider.STRIPE, "event_123", "{}", "signature");
@@ -109,17 +111,18 @@ class BillingWebhookServiceTests {
         BillingPayment payment = stripePaidPayment();
         PaymentWebhookEvent updated = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_123",
                 "customer.subscription.updated", null, "sub_123", 0, "INR",
-                PaymentWebhookStatus.IGNORED, NOW, true, PERIOD_START, PERIOD_END, true);
+                PaymentWebhookStatus.IGNORED, NOW, true, PERIOD_START, PERIOD_END, true,
+                ProviderSubscriptionStatus.ACTIVE);
         Fixture updateFixture = fixture(updated);
         when(updateFixture.webhookEvents.claim(PaymentProvider.STRIPE, "event_123", updated.eventType(),
                 updateFixture.payloadHash, NOW)).thenReturn(true);
-        when(updateFixture.payments.findByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+        when(updateFixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
                 .thenReturn(Optional.of(payment));
 
         updateFixture.service.handle(PaymentProvider.STRIPE, "event_123", "{}", "signature");
 
         verify(updateFixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
-                PERIOD_START, PERIOD_END, true);
+                PERIOD_START, PERIOD_END, true, ProviderSubscriptionStatus.ACTIVE);
 
         PaymentWebhookEvent deleted = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_124",
                 "customer.subscription.deleted", null, "sub_123", 0, "INR",
@@ -127,12 +130,55 @@ class BillingWebhookServiceTests {
         Fixture deleteFixture = fixture(deleted);
         when(deleteFixture.webhookEvents.claim(PaymentProvider.STRIPE, "event_124", deleted.eventType(),
                 deleteFixture.payloadHash, NOW)).thenReturn(true);
-        when(deleteFixture.payments.findByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+        when(deleteFixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
                 .thenReturn(Optional.of(payment));
 
         deleteFixture.service.handle(PaymentProvider.STRIPE, "event_124", "{}", "signature");
 
         verify(deleteFixture.billing).cancelPaidPlan(payment.getWorkspaceId(), PaymentProvider.STRIPE, "sub_123");
+    }
+
+    @Test
+    void pastDueSubscriptionUpdateCannotReactivatePaidEntitlement() {
+        BillingPayment payment = stripePaidPayment();
+        PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_past_due",
+                "customer.subscription.updated", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.FAILED, NOW, true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.PAST_DUE);
+        Fixture fixture = fixture(event);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, event.eventId(), event.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+                .thenReturn(Optional.of(payment));
+
+        fixture.service.handle(PaymentProvider.STRIPE, event.eventId(), "{}", "signature");
+
+        verify(fixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
+                PERIOD_START, PERIOD_END, false, ProviderSubscriptionStatus.PAST_DUE);
+        verify(fixture.billing, never()).renewPaidPlan(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void staleStripeEventIsCompletedWithoutChangingSubscriptionState() {
+        PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_stale",
+                "customer.subscription.updated", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.IGNORED, NOW.minusSeconds(60), true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.ACTIVE);
+        Fixture fixture = fixture(event);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, event.eventId(), event.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.providerEvents.accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                event.occurredAt(), 350, event.eventId())).thenReturn(false);
+
+        fixture.service.handle(PaymentProvider.STRIPE, event.eventId(), "{}", "signature");
+
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.webhookEvents).complete(PaymentProvider.STRIPE, event.eventId(), false, NOW);
     }
 
     @Test
@@ -152,7 +198,7 @@ class BillingWebhookServiceTests {
             BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
                     PaymentProvider.RAZORPAY_LOCAL, "key", "receipt", 99_900, "INR");
             payment.orderCreated("order_123", null);
-            when(fixture.payments.findByProviderAndProviderOrderId(PaymentProvider.RAZORPAY_LOCAL, "order_123"))
+            when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.RAZORPAY_LOCAL, "order_123"))
                     .thenReturn(Optional.of(payment));
 
             fixture.service.handle(PaymentProvider.RAZORPAY_LOCAL, "event_123", "{}", "signature");
@@ -170,14 +216,18 @@ class BillingWebhookServiceTests {
         PaymentGateway gateway = mock(PaymentGateway.class);
         BillingPaymentRepository payments = mock(BillingPaymentRepository.class);
         BillingWebhookRepository webhookEvents = mock(BillingWebhookRepository.class);
+        BillingProviderEventRepository providerEvents = mock(BillingProviderEventRepository.class);
         BillingService billing = mock(BillingService.class);
         ProviderPaymentConfirmationService confirmations = mock(ProviderPaymentConfirmationService.class);
         when(gateways.orderedStream()).thenReturn(Stream.of(gateway));
         when(gateway.provider()).thenReturn(event.provider());
         when(gateway.verifyWebhook(event.eventId(), "{}", "signature")).thenReturn(event);
-        BillingWebhookService service = new BillingWebhookService(gateways, payments, webhookEvents, billing, confirmations,
-                (ClockProvider) () -> NOW);
-        return new Fixture(service, payments, webhookEvents, billing, confirmations,
+        when(providerEvents.accept(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        BillingWebhookService service = new BillingWebhookService(gateways, payments, webhookEvents, providerEvents,
+                billing, confirmations, (ClockProvider) () -> NOW);
+        return new Fixture(service, payments, webhookEvents, providerEvents, billing, confirmations,
                 "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a");
     }
 
@@ -190,6 +240,7 @@ class BillingWebhookServiceTests {
     }
 
     private record Fixture(BillingWebhookService service, BillingPaymentRepository payments,
-                           BillingWebhookRepository webhookEvents, BillingService billing,
+                           BillingWebhookRepository webhookEvents, BillingProviderEventRepository providerEvents,
+                           BillingService billing,
                            ProviderPaymentConfirmationService confirmations, String payloadHash) { }
 }

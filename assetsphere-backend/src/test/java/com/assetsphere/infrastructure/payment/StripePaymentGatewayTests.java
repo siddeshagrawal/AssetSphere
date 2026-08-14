@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.assetsphere.modules.billing.api.PaymentWebhookStatus;
 import com.assetsphere.modules.billing.api.CheckoutRequest;
 import com.assetsphere.modules.billing.api.Plan;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.common.exception.InvalidRequestException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -94,15 +95,32 @@ class StripePaymentGatewayTests {
     void subscriptionUpdatedSynchronizesWhileDeletedRemainsTerminalCancellation() throws Exception {
         var updated = verifiedEvent("customer.subscription.updated", """
                 {"id":"sub_123","currency":"inr","current_period_start":1785522600,
-                 "current_period_end":1788201000,"cancel_at_period_end":true}
+                 "current_period_end":1788201000,"cancel_at_period_end":true,"status":"active"}
                 """);
         var deleted = verifiedEvent("customer.subscription.deleted", """
-                {"id":"sub_123","currency":"inr","cancel_at_period_end":false}
+                {"id":"sub_123","currency":"inr","cancel_at_period_end":false,"status":"canceled"}
                 """);
 
         assertThat(updated.status()).isEqualTo(PaymentWebhookStatus.IGNORED);
+        assertThat(updated.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.ACTIVE);
         assertThat(updated.cancelAtPeriodEnd()).isTrue();
         assertThat(deleted.status()).isEqualTo(PaymentWebhookStatus.CANCELED);
+        assertThat(deleted.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.CANCELED);
+    }
+
+    @Test
+    void mapsNonEntitledSubscriptionStatusesWithoutReactivatingThem() throws Exception {
+        var pastDue = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"past_due","cancel_at_period_end":false}
+                """);
+        var unpaid = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"unpaid","cancel_at_period_end":false}
+                """);
+
+        assertThat(pastDue.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.PAST_DUE);
+        assertThat(pastDue.status()).isEqualTo(PaymentWebhookStatus.FAILED);
+        assertThat(unpaid.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.UNPAID);
+        assertThat(unpaid.status()).isEqualTo(PaymentWebhookStatus.FAILED);
     }
 
     @Test

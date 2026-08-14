@@ -6,6 +6,7 @@ import com.assetsphere.modules.billing.api.PaymentGateway;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentWebhookEvent;
 import com.assetsphere.modules.billing.api.PaymentWebhookStatus;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.common.exception.InvalidRequestException;
 import com.assetsphere.modules.common.exception.ServiceUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -122,11 +123,12 @@ class StripePaymentGateway implements PaymentGateway {
             JsonNode root = objectMapper.readTree(payload);
             String type = root.path("type").asText();
             JsonNode session = root.path("data").path("object");
+            ProviderSubscriptionStatus subscriptionStatus = stripeSubscriptionStatus(type, session);
             PaymentWebhookStatus status = switch (type) {
                 case "checkout.session.completed", "checkout.session.async_payment_succeeded" -> "paid".equals(session.path("payment_status").asText())
                         ? PaymentWebhookStatus.SUCCEEDED : PaymentWebhookStatus.IGNORED;
                 case "checkout.session.expired", "checkout.session.async_payment_failed" -> PaymentWebhookStatus.FAILED;
-                case "customer.subscription.updated" -> PaymentWebhookStatus.IGNORED;
+                case "customer.subscription.updated" -> subscriptionWebhookStatus(subscriptionStatus);
                 case "customer.subscription.deleted" -> PaymentWebhookStatus.CANCELED;
                 case "invoice.paid" -> PaymentWebhookStatus.SUCCEEDED;
                 case "invoice.payment_failed" -> PaymentWebhookStatus.FAILED;
@@ -143,10 +145,12 @@ class StripePaymentGateway implements PaymentGateway {
                     ? epoch(session, "period_end") : epoch(session, "current_period_end");
             Boolean cancelAtPeriodEnd = type.startsWith("customer.subscription")
                     ? session.path("cancel_at_period_end").asBoolean(false) : null;
+            Instant occurredAt = epoch(root, "created");
+            if (occurredAt == null) throw new IllegalArgumentException("Stripe event timestamp is required");
             return new PaymentWebhookEvent(provider(), actualEventId, type, orderId, paymentId,
                     amount, session.path("currency").asText("").toUpperCase(),
-                    status, Instant.ofEpochSecond(root.path("created").asLong(Instant.now().getEpochSecond())), true,
-                    periodStart, periodEnd, cancelAtPeriodEnd);
+                    status, occurredAt, true,
+                    periodStart, periodEnd, cancelAtPeriodEnd, subscriptionStatus);
         } catch (Exception exception) {
             throw new InvalidRequestException("Invalid Stripe webhook payload");
         }
@@ -193,5 +197,24 @@ class StripePaymentGateway implements PaymentGateway {
         return value > 0 ? Instant.ofEpochSecond(value) : null;
     }
     private String first(String first, String second) { return first == null ? second : first; }
+    private ProviderSubscriptionStatus stripeSubscriptionStatus(String eventType, JsonNode object) {
+        if (!eventType.startsWith("customer.subscription.")) return null;
+        return switch (object.path("status").asText("").toLowerCase()) {
+            case "active" -> ProviderSubscriptionStatus.ACTIVE;
+            case "trialing" -> ProviderSubscriptionStatus.TRIALING;
+            case "past_due" -> ProviderSubscriptionStatus.PAST_DUE;
+            case "unpaid" -> ProviderSubscriptionStatus.UNPAID;
+            case "canceled" -> ProviderSubscriptionStatus.CANCELED;
+            case "incomplete" -> ProviderSubscriptionStatus.INCOMPLETE;
+            case "incomplete_expired" -> ProviderSubscriptionStatus.INCOMPLETE_EXPIRED;
+            case "paused" -> ProviderSubscriptionStatus.PAUSED;
+            default -> ProviderSubscriptionStatus.UNKNOWN;
+        };
+    }
+    private PaymentWebhookStatus subscriptionWebhookStatus(ProviderSubscriptionStatus status) {
+        if (status == null || status == ProviderSubscriptionStatus.UNKNOWN) return PaymentWebhookStatus.IGNORED;
+        if (status.terminal()) return PaymentWebhookStatus.CANCELED;
+        return status.entitled() ? PaymentWebhookStatus.IGNORED : PaymentWebhookStatus.FAILED;
+    }
     private record Signature(long timestamp, String value) { }
 }

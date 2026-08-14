@@ -4,26 +4,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.assetsphere.modules.billing.api.PaymentProvider;
+import com.assetsphere.modules.billing.persistence.BillingPostgresIntegrationDatabase;
 import java.util.UUID;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+@EnabledIfEnvironmentVariable(named = "ASSETSPHERE_POSTGRES_INTEGRATION", matches = "true")
 class BillingProviderCompatibilityMigrationPostgresTests {
     @Test
     void legacyProviderMigratesAndCurrentProviderAndStatusContractsPersist() {
         Assumptions.assumeTrue(configured("ASSETSPHERE_POSTGRES_HOST") && configured("POSTGRES_PASSWORD"),
                 "external PostgreSQL integration environment not configured");
-        PGSimpleDataSource dataSource = dataSource();
+        PGSimpleDataSource adminDataSource = BillingPostgresIntegrationDatabase.dataSource();
         String schema = "billing_v16_" + UUID.randomUUID().toString().replace("-", "");
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        JdbcTemplate adminJdbc = new JdbcTemplate(adminDataSource);
         try {
-            jdbc.execute("CREATE SCHEMA " + schema);
-            migrate(dataSource, schema, "15");
-            jdbc.execute("SET search_path TO " + schema + ", public");
+            adminJdbc.execute("CREATE SCHEMA " + schema);
+            PGSimpleDataSource schemaDataSource = BillingPostgresIntegrationDatabase.dataSource();
+            schemaDataSource.setCurrentSchema(schema + ",public");
+            JdbcTemplate jdbc = new JdbcTemplate(schemaDataSource);
+            BillingPostgresIntegrationDatabase.migrate(schemaDataSource, schema, "15");
             UUID workspaceId = UUID.randomUUID();
             UUID userId = UUID.randomUUID();
             jdbc.update("""
@@ -42,8 +46,7 @@ class BillingProviderCompatibilityMigrationPostgresTests {
                     VALUES (?, ?, ?, 'PRO', 'RAZORPAY', ?, ?, 99900, 'INR', 'FAILED', now(), now(), 0)
                     """, paymentId, workspaceId, userId, "key-" + paymentId, "receipt-" + paymentId);
 
-            migrate(dataSource, schema, null);
-            jdbc.execute("SET search_path TO " + schema + ", public");
+            BillingPostgresIntegrationDatabase.migrate(schemaDataSource, schema, null);
 
             String provider = jdbc.queryForObject("SELECT provider FROM billing_payments WHERE id = ?",
                     String.class, paymentId);
@@ -55,29 +58,8 @@ class BillingProviderCompatibilityMigrationPostgresTests {
             assertThatThrownBy(() -> jdbc.update("UPDATE billing_payments SET provider = 'UNKNOWN' WHERE id = ?", paymentId))
                     .isInstanceOf(DataIntegrityViolationException.class);
         } finally {
-            jdbc.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+            adminJdbc.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
         }
-    }
-
-    private void migrate(PGSimpleDataSource dataSource, String schema, String target) {
-        var configuration = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema)
-                .locations("classpath:db/migration");
-        if (target != null) configuration.target(target);
-        configuration.load().migrate();
-    }
-
-    private PGSimpleDataSource dataSource() {
-        PGSimpleDataSource dataSource = new PGSimpleDataSource();
-        dataSource.setUrl("jdbc:postgresql://%s:5432/assetsphere".formatted(required("ASSETSPHERE_POSTGRES_HOST")));
-        dataSource.setUser("assetsphere");
-        dataSource.setPassword(required("POSTGRES_PASSWORD"));
-        return dataSource;
-    }
-
-    private String required(String name) {
-        String value = System.getenv(name);
-        if (value == null || value.isBlank()) throw new IllegalStateException(name + " is required");
-        return value;
     }
 
     private boolean configured(String name) {

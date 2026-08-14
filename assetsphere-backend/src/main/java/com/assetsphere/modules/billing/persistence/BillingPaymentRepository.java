@@ -24,6 +24,10 @@ public interface BillingPaymentRepository extends JpaRepository<BillingPayment, 
     @Query("select payment from BillingPayment payment where payment.provider = :provider and payment.providerOrderId = :orderId")
     Optional<BillingPayment> findLockedByProviderAndProviderOrderId(@Param("provider") PaymentProvider provider,
                                                                     @Param("orderId") String orderId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select payment from BillingPayment payment where payment.provider = :provider and payment.providerPaymentId = :paymentId")
+    Optional<BillingPayment> findLockedByProviderAndProviderPaymentId(@Param("provider") PaymentProvider provider,
+                                                                      @Param("paymentId") String paymentId);
     Optional<BillingPayment> findFirstByWorkspaceIdOrderByCreatedAtDesc(UUID workspaceId);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<BillingPayment> findFirstByWorkspaceIdAndProviderAndStatusInAndCreatedAtAfterOrderByCreatedAtDesc(

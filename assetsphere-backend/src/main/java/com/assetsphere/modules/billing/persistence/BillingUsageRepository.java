@@ -1,7 +1,8 @@
 package com.assetsphere.modules.billing.persistence;
 
 import com.assetsphere.modules.billing.api.UsageMetric;
-import java.time.LocalDate;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
@@ -15,10 +16,11 @@ import org.springframework.stereotype.Repository;
 public class BillingUsageRepository {
     private final NamedParameterJdbcTemplate jdbc;
 
-    public long incrementWithinLimit(UUID workspaceId, UsageMetric metric, LocalDate periodStart, long limit) {
+    public long incrementWithinLimit(UUID workspaceId, UsageMetric metric, Instant periodStart, long limit) {
         var parameters = new MapSqlParameterSource()
                 .addValue("id", UUID.randomUUID()).addValue("workspaceId", workspaceId)
-                .addValue("metric", metric.name()).addValue("periodStart", periodStart).addValue("limit", limit);
+                .addValue("metric", metric.name()).addValue("periodStart", Timestamp.from(periodStart))
+                .addValue("limit", limit);
         return jdbc.query("""
                 INSERT INTO billing_usage (id, workspace_id, metric, period_start, usage_count, created_at, updated_at)
                 VALUES (:id, :workspaceId, :metric, :periodStart, 1, now(), now())
@@ -29,20 +31,22 @@ public class BillingUsageRepository {
                 """, parameters, (resultSet, row) -> resultSet.getLong(1)).stream().findFirst().orElse(-1L);
     }
 
-    public Map<UsageMetric, Long> findUsage(UUID workspaceId, LocalDate periodStart) {
+    public Map<UsageMetric, Long> findUsage(UUID workspaceId, Instant periodStart) {
         Map<UsageMetric, Long> usage = new EnumMap<>(UsageMetric.class);
         jdbc.query("SELECT metric, usage_count FROM billing_usage WHERE workspace_id=:workspaceId AND period_start=:periodStart",
-                new MapSqlParameterSource().addValue("workspaceId", workspaceId).addValue("periodStart", periodStart),
+                new MapSqlParameterSource().addValue("workspaceId", workspaceId)
+                        .addValue("periodStart", Timestamp.from(periodStart)),
                 resultSet -> { usage.put(UsageMetric.valueOf(resultSet.getString(1)), resultSet.getLong(2)); });
         return usage;
     }
 
     public long incrementOnceWithinLimit(UUID workspaceId, UsageMetric metric, UUID operationId,
-                                         LocalDate periodStart, long limit) {
+                                         Instant periodStart, long limit) {
         var parameters = new MapSqlParameterSource()
                 .addValue("eventId", UUID.randomUUID()).addValue("usageId", UUID.randomUUID())
                 .addValue("workspaceId", workspaceId).addValue("metric", metric.name())
-                .addValue("operationId", operationId).addValue("periodStart", periodStart).addValue("limit", limit);
+                .addValue("operationId", operationId).addValue("periodStart", Timestamp.from(periodStart))
+                .addValue("limit", limit);
         return jdbc.queryForObject("""
                 WITH claimed AS (
                     INSERT INTO billing_usage_events (id, workspace_id, metric, operation_id, period_start, created_at)

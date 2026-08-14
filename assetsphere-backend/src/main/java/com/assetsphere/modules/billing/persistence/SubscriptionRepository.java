@@ -21,9 +21,9 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     @Modifying
     @Query(value = """
             INSERT INTO workspace_subscriptions
-                (id, workspace_id, plan, status, current_period_start, current_period_end,
+                (id, workspace_id, plan, status, current_period_start, current_period_end, usage_period_start,
                  created_at, updated_at, created_by, updated_by, version)
-            VALUES (:id, :workspaceId, 'FREE', 'ACTIVE', :periodStart, :periodEnd,
+            VALUES (:id, :workspaceId, 'FREE', 'ACTIVE', :periodStart, :periodEnd, :periodStart,
                     now(), now(), :actorId, :actorId, 0)
             ON CONFLICT (workspace_id) DO NOTHING
             """, nativeQuery = true)

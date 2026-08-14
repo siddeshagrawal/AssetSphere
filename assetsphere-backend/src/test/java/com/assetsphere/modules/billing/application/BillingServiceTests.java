@@ -17,10 +17,10 @@ import com.assetsphere.modules.billing.persistence.SubscriptionRepository;
 import com.assetsphere.modules.billing.domain.BillingPayment;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentStatus;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.common.exception.QuotaExceededException;
 import com.assetsphere.modules.common.time.ClockProvider;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -52,7 +52,8 @@ class BillingServiceTests {
         when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(
                 Subscription.free(workspaceId, Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-01T00:00:00Z"))));
         when(providers.orderedStream()).thenReturn(Stream.of(resources));
-        when(usage.incrementWithinLimit(workspaceId, UsageMetric.ASK, LocalDate.parse("2026-08-01"), 50))
+        when(usage.incrementWithinLimit(workspaceId, UsageMetric.ASK,
+                Instant.parse("2026-08-01T00:00:00Z"), 50))
                 .thenReturn(50L, -1L);
         BillingService billing = new BillingService(subscriptions, usage, mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
                 (ClockProvider) () -> now, providers, mock(ObjectProvider.class));
@@ -62,7 +63,133 @@ class BillingServiceTests {
                 .isInstanceOf(QuotaExceededException.class)
                 .hasMessage("You've used 50/50 Ask requests this month.");
         verify(usage, times(2)).incrementWithinLimit(
-                workspaceId, UsageMetric.ASK, LocalDate.parse("2026-08-01"), 50);
+                workspaceId, UsageMetric.ASK, Instant.parse("2026-08-01T00:00:00Z"), 50);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void stripeSubscriptionIsNotLocallyExpiredBeforeDelayedRenewal() {
+        UUID workspaceId = UUID.randomUUID();
+        Instant oldStart = Instant.parse("2026-08-01T00:00:00Z");
+        Instant oldEnd = Instant.parse("2026-09-01T00:00:00Z");
+        Instant now = oldEnd.plusSeconds(30);
+        Subscription subscription = Subscription.free(workspaceId, oldStart, oldEnd);
+        subscription.activatePro(PaymentProvider.STRIPE.name(), "sub_123", oldStart, oldEnd);
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        BillingService billing = new BillingService(subscriptions, mock(BillingUsageRepository.class),
+                mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
+                () -> now, mock(ObjectProvider.class), mock(ObjectProvider.class));
+
+        org.assertj.core.api.Assertions.assertThat(billing.currentPlan(workspaceId)).isEqualTo(Plan.PRO);
+        org.assertj.core.api.Assertions.assertThat(subscription.getExternalSubscriptionId()).isEqualTo("sub_123");
+
+        Instant renewedEnd = Instant.parse("2026-10-01T00:00:00Z");
+        billing.renewPaidPlan(workspaceId, PaymentProvider.STRIPE, "sub_123", oldEnd, renewedEnd);
+
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodStart()).isEqualTo(oldEnd);
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(renewedEnd);
+        org.assertj.core.api.Assertions.assertThat(subscription.getUsagePeriodStart()).isEqualTo(oldEnd);
+        org.assertj.core.api.Assertions.assertThat(subscription.getExternalSubscriptionId()).isEqualTo("sub_123");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void scheduledStripeCancellationRemainsProUntilTerminalEvent() {
+        UUID workspaceId = UUID.randomUUID();
+        Instant periodStart = Instant.parse("2026-08-01T00:00:00Z");
+        Instant periodEnd = Instant.parse("2026-09-01T00:00:00Z");
+        Instant now = periodEnd.plusSeconds(30);
+        Subscription subscription = Subscription.free(workspaceId, periodStart, periodEnd);
+        subscription.activatePro(PaymentProvider.STRIPE.name(), "sub_123", periodStart, periodEnd);
+        subscription.scheduleCancellation();
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        BillingService billing = new BillingService(subscriptions, mock(BillingUsageRepository.class),
+                mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
+                () -> now, mock(ObjectProvider.class), mock(ObjectProvider.class));
+
+        org.assertj.core.api.Assertions.assertThat(billing.currentPlan(workspaceId)).isEqualTo(Plan.PRO);
+        org.assertj.core.api.Assertions.assertThat(subscription.getExternalSubscriptionId()).isEqualTo("sub_123");
+
+        billing.cancelPaidPlan(workspaceId, PaymentProvider.STRIPE, "sub_123");
+
+        org.assertj.core.api.Assertions.assertThat(subscription.getPlan()).isEqualTo(Plan.FREE);
+        org.assertj.core.api.Assertions.assertThat(subscription.getStatus())
+                .isEqualTo(com.assetsphere.modules.billing.api.SubscriptionStatus.ACTIVE);
+        org.assertj.core.api.Assertions.assertThat(subscription.getExternalSubscriptionId()).isNull();
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodStart())
+                .isEqualTo(Instant.parse("2026-09-01T00:00:00Z"));
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodEnd())
+                .isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
+        subscription.advancePeriod(Instant.parse("2026-10-01T00:00:00Z"),
+                Instant.parse("2026-11-01T00:00:00Z"));
+        org.assertj.core.api.Assertions.assertThat(subscription.getStatus())
+                .isEqualTo(com.assetsphere.modules.billing.api.SubscriptionStatus.ACTIVE);
+        org.assertj.core.api.Assertions.assertThat(subscription.getPlan()).isEqualTo(Plan.FREE);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void stripeSubscriptionStatusControlsEntitlementDuringSynchronization() {
+        UUID workspaceId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-15T00:00:00Z");
+        Instant periodStart = Instant.parse("2026-08-14T00:00:00Z");
+        Instant periodEnd = Instant.parse("2026-09-14T00:00:00Z");
+        Subscription subscription = Subscription.free(workspaceId, periodStart, periodEnd);
+        subscription.activatePro(PaymentProvider.STRIPE.name(), "sub_123", periodStart, periodEnd);
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        BillingService billing = new BillingService(subscriptions, mock(BillingUsageRepository.class),
+                mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
+                () -> now, mock(ObjectProvider.class), mock(ObjectProvider.class));
+
+        billing.synchronizeStripeSubscription(workspaceId, "sub_123", periodStart, periodEnd,
+                false, ProviderSubscriptionStatus.PAST_DUE);
+        org.assertj.core.api.Assertions.assertThat(subscription.getStatus())
+                .isEqualTo(com.assetsphere.modules.billing.api.SubscriptionStatus.PAST_DUE);
+
+        billing.synchronizeStripeSubscription(workspaceId, "sub_123", periodStart, periodEnd,
+                false, ProviderSubscriptionStatus.ACTIVE);
+        org.assertj.core.api.Assertions.assertThat(subscription.getStatus())
+                .isEqualTo(com.assetsphere.modules.billing.api.SubscriptionStatus.ACTIVE);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proActivationChangesPeriodUsageWithoutResettingAssetOrStorageState() {
+        UUID workspaceId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-14T12:00:00Z");
+        Subscription subscription = Subscription.free(workspaceId,
+                Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-09-01T00:00:00Z"));
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        BillingUsageRepository usage = mock(BillingUsageRepository.class);
+        BillingPaymentRepository payments = mock(BillingPaymentRepository.class);
+        WorkspaceResourceUsageProvider resources = mock(WorkspaceResourceUsageProvider.class);
+        ObjectProvider<WorkspaceResourceUsageProvider> resourceProviders = mock(ObjectProvider.class);
+        when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(usage.findUsage(org.mockito.ArgumentMatchers.eq(workspaceId), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Map.of());
+        when(resources.usage(workspaceId))
+                .thenReturn(new WorkspaceResourceUsageProvider.WorkspaceResourceUsage(2, 314));
+        when(resourceProviders.orderedStream()).thenReturn(Stream.of(resources));
+        BillingService billing = new BillingService(subscriptions, usage, payments,
+                new BillingProperties(), new BillingPaymentProperties(), () -> now,
+                resourceProviders, mock(ObjectProvider.class));
+
+        billing.activatePro(workspaceId, PaymentProvider.STRIPE, "sub_123", now,
+                Instant.parse("2026-09-14T12:00:00Z"));
+        subscription.synchronizePeriod(now.minusSeconds(5),
+                Instant.parse("2026-09-14T11:59:55Z"));
+        var response = billing.billing(workspaceId);
+
+        org.assertj.core.api.Assertions.assertThat(response.usage().assets()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(response.usage().storageBytes()).isEqualTo(314);
+        org.assertj.core.api.Assertions.assertThat(subscription.getUsagePeriodStart()).isEqualTo(now);
     }
 
     @Test

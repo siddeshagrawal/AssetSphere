@@ -21,10 +21,7 @@ class BillingWebhookRepositoryPostgresIntegrationTests {
 
     @BeforeAll
     void setUp() {
-        PGSimpleDataSource dataSource = new PGSimpleDataSource();
-        dataSource.setUrl("jdbc:postgresql://%s:5432/assetsphere".formatted(environment("ASSETSPHERE_POSTGRES_HOST")));
-        dataSource.setUser("assetsphere");
-        dataSource.setPassword(environment("POSTGRES_PASSWORD"));
+        PGSimpleDataSource dataSource = BillingPostgresIntegrationDatabase.migratedDataSource();
         jdbc = new JdbcTemplate(dataSource);
         repository = new BillingWebhookRepository(jdbc);
     }
@@ -56,11 +53,5 @@ class BillingWebhookRepositoryPostgresIntegrationTests {
             jdbc.update("DELETE FROM billing_webhook_events WHERE provider = ? AND provider_event_id = ?",
                     PaymentProvider.STRIPE.name(), eventId);
         }
-    }
-
-    private String environment(String name) {
-        String value = System.getenv(name);
-        if (value == null || value.isBlank()) throw new IllegalStateException(name + " is required");
-        return value;
     }
 }

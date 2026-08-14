@@ -136,6 +136,64 @@ class StripePaymentGatewayTests {
     }
 
     @Test
+    void modernActiveSubscriptionUsesSingleItemAuthoritativePeriod() throws Exception {
+        var event = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"active","cancel_at_period_end":false,
+                 "items":{"data":[{"id":"si_123","current_period_start":1785522600,
+                 "current_period_end":1788201000}]}}
+                """);
+
+        assertThat(event.status()).isEqualTo(PaymentWebhookStatus.IGNORED);
+        assertThat(event.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.ACTIVE);
+        assertThat(event.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
+        assertThat(event.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
+    }
+
+    @Test
+    void malformedZeroLengthItemPeriodIsNotExposed() throws Exception {
+        var event = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"active","cancel_at_period_end":false,
+                 "items":{"data":[{"id":"si_123","current_period_start":1785522600,
+                 "current_period_end":1785522600}]}}
+                """);
+
+        assertThat(event.periodStart()).isNull();
+        assertThat(event.periodEnd()).isNull();
+    }
+
+    @Test
+    void validTopLevelSubscriptionPeriodTakesPrecedenceOverItems() throws Exception {
+        var event = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"active","cancel_at_period_end":false,
+                 "current_period_start":1785522600,"current_period_end":1788201000,
+                 "items":{"data":[{"id":"si_123","current_period_start":1800000000,
+                 "current_period_end":1802678400}]}}
+                """);
+
+        assertThat(event.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
+        assertThat(event.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
+    }
+
+    @Test
+    void multipleSubscriptionItemsRequireIdenticalCompatiblePeriods() throws Exception {
+        var compatible = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"active","items":{"data":[
+                 {"id":"si_1","current_period_start":1785522600,"current_period_end":1788201000},
+                 {"id":"si_2","current_period_start":1785522600,"current_period_end":1788201000}]}}
+                """);
+        var incompatible = verifiedEvent("customer.subscription.updated", """
+                {"id":"sub_123","status":"active","items":{"data":[
+                 {"id":"si_1","current_period_start":1785522600,"current_period_end":1788201000},
+                 {"id":"si_2","current_period_start":1785522600,"current_period_end":1790879400}]}}
+                """);
+
+        assertThat(compatible.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
+        assertThat(compatible.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
+        assertThat(incompatible.periodStart()).isNull();
+        assertThat(incompatible.periodEnd()).isNull();
+    }
+
+    @Test
     void mapsNonEntitledSubscriptionStatusesWithoutReactivatingThem() throws Exception {
         var pastDue = verifiedEvent("customer.subscription.updated", """
                 {"id":"sub_123","status":"past_due","cancel_at_period_end":false}

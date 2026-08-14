@@ -139,10 +139,9 @@ class StripePaymentGateway implements PaymentGateway {
             String actualEventId = root.path("id").asText(eventId);
             long amount = type.startsWith("invoice.") ? session.path("amount_paid").asLong(0)
                     : session.path("amount_total").asLong(0);
-            Instant periodStart = type.startsWith("customer.subscription.")
-                    ? epoch(session, "current_period_start") : null;
-            Instant periodEnd = type.startsWith("customer.subscription.")
-                    ? epoch(session, "current_period_end") : null;
+            SubscriptionPeriod subscriptionPeriod = subscriptionPeriod(type, session);
+            Instant periodStart = subscriptionPeriod.start();
+            Instant periodEnd = subscriptionPeriod.end();
             Boolean cancelAtPeriodEnd = type.startsWith("customer.subscription")
                     ? session.path("cancel_at_period_end").asBoolean(false) : null;
             Instant occurredAt = epoch(root, "created");
@@ -196,6 +195,27 @@ class StripePaymentGateway implements PaymentGateway {
         long value = node == null ? 0 : node.path(field).asLong(0);
         return value > 0 ? Instant.ofEpochSecond(value) : null;
     }
+    private SubscriptionPeriod subscriptionPeriod(String eventType, JsonNode subscription) {
+        if (!eventType.startsWith("customer.subscription.")) return SubscriptionPeriod.empty();
+        SubscriptionPeriod topLevel = period(subscription);
+        if (topLevel.valid()) return topLevel;
+        JsonNode items = subscription == null ? null : subscription.path("items").path("data");
+        if (items == null || !items.isArray() || items.isEmpty()) return SubscriptionPeriod.empty();
+        SubscriptionPeriod shared = null;
+        for (JsonNode item : items) {
+            SubscriptionPeriod itemPeriod = period(item);
+            if (!itemPeriod.valid()) return SubscriptionPeriod.empty();
+            if (shared == null) shared = itemPeriod;
+            else if (!shared.equals(itemPeriod)) return SubscriptionPeriod.empty();
+        }
+        return shared == null ? SubscriptionPeriod.empty() : shared;
+    }
+    private SubscriptionPeriod period(JsonNode node) {
+        Instant start = epoch(node, "current_period_start");
+        Instant end = epoch(node, "current_period_end");
+        return start != null && end != null && end.isAfter(start)
+                ? new SubscriptionPeriod(start, end) : SubscriptionPeriod.empty();
+    }
     private String first(String first, String second) { return first == null ? second : first; }
     private ProviderSubscriptionStatus stripeSubscriptionStatus(String eventType, JsonNode object) {
         if (!eventType.startsWith("customer.subscription.")) return null;
@@ -215,6 +235,10 @@ class StripePaymentGateway implements PaymentGateway {
         if (status == null || status == ProviderSubscriptionStatus.UNKNOWN) return PaymentWebhookStatus.IGNORED;
         if (status.terminal()) return PaymentWebhookStatus.CANCELED;
         return status.entitled() ? PaymentWebhookStatus.IGNORED : PaymentWebhookStatus.FAILED;
+    }
+    private record SubscriptionPeriod(Instant start, Instant end) {
+        private static SubscriptionPeriod empty() { return new SubscriptionPeriod(null, null); }
+        private boolean valid() { return start != null && end != null && end.isAfter(start); }
     }
     private record Signature(long timestamp, String value) { }
 }

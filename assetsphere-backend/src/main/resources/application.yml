@@ -108,8 +108,12 @@ assetsphere:
     frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:5173}
     email:
       enabled: ${EMAIL_ENABLED:false}
+      provider: ${EMAIL_PROVIDER:SMTP}
       time-zone: ${EMAIL_TIME_ZONE:Asia/Kolkata}
       from: ${EMAIL_FROM:}
+      resend:
+        api-key: ${RESEND_API_KEY:}
+        from: ${RESEND_FROM:}
   security:
     invitation-expiration-seconds: ${ASSETSPHERE_INVITATION_EXPIRATION_SECONDS:604800}
   asset:

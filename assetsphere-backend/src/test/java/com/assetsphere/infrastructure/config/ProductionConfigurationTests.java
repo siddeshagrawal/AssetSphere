@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.assetsphere.modules.auth.application.GoogleOAuthProperties;
+import com.assetsphere.infrastructure.notification.EmailConfigurationValidator;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -175,7 +176,10 @@ class ProductionConfigurationTests {
         set(environment, "assetsphere.billing.stripe.webhook-secret", "webhook-secret");
         set(environment, "assetsphere.notification.frontend-base-url", "https://app.example.com");
         set(environment, "assetsphere.notification.email.enabled", "false");
+        set(environment, "assetsphere.notification.email.provider", "SMTP");
         set(environment, "assetsphere.notification.email.from", "notifications@example.com");
+        set(environment, "assetsphere.notification.email.resend.api-key", "resend-secret");
+        set(environment, "assetsphere.notification.email.resend.from", "notifications@example.com");
         set(environment, "spring.mail.host", "smtp.example.com");
         set(environment, "assetsphere.ai.enabled", "false");
         set(environment, "spring.ai.openai.api-key", "openai-secret");
@@ -199,7 +203,7 @@ class ProductionConfigurationTests {
                 new ProductionConfigurationValidator(environment, properties,
                         () -> {
                             if (google.isEnabled()) google.requireConfigured();
-                        }));
+                        }, new EmailConfigurationValidator(environment)));
     }
 
     private void mutateMinio(ApplicationProperties properties, String field, String value) {

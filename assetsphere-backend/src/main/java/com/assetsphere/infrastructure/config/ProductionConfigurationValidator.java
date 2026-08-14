@@ -1,5 +1,6 @@
 package com.assetsphere.infrastructure.config;
 
+import com.assetsphere.infrastructure.notification.EmailConfigurationValidator;
 import com.assetsphere.modules.auth.api.GoogleOAuthConfigurationGuard;
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Profile;
@@ -12,12 +13,15 @@ public class ProductionConfigurationValidator {
     private final Environment environment;
     private final ApplicationProperties applicationProperties;
     private final GoogleOAuthConfigurationGuard googleOAuthConfigurationGuard;
+    private final EmailConfigurationValidator emailConfigurationValidator;
 
     public ProductionConfigurationValidator(Environment environment, ApplicationProperties applicationProperties,
-                                            GoogleOAuthConfigurationGuard googleOAuthConfigurationGuard) {
+                                            GoogleOAuthConfigurationGuard googleOAuthConfigurationGuard,
+                                            EmailConfigurationValidator emailConfigurationValidator) {
         this.environment = environment;
         this.applicationProperties = applicationProperties;
         this.googleOAuthConfigurationGuard = googleOAuthConfigurationGuard;
+        this.emailConfigurationValidator = emailConfigurationValidator;
     }
 
     @PostConstruct
@@ -55,8 +59,11 @@ public class ProductionConfigurationValidator {
 
         googleOAuthConfigurationGuard.validateIfEnabled();
 
-        if (environment.getProperty("assetsphere.notification.email.enabled", Boolean.class, false)) {
-            require("assetsphere.notification.email.from", "Invitation email sender address");
+        if (emailConfigurationValidator.enabled()) {
+            require("assetsphere.notification.email.provider", "Email provider");
+        }
+        emailConfigurationValidator.validate();
+        if (emailConfigurationValidator.smtpSelected()) {
             String mailHost = require("spring.mail.host", "SMTP host");
             if ("localhost".equalsIgnoreCase(mailHost) || "127.0.0.1".equals(mailHost)) {
                 throw new IllegalStateException("SMTP host must not use a local development address in production");

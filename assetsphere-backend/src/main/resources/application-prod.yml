@@ -45,7 +45,11 @@ assetsphere:
     frontend-base-url: ${FRONTEND_BASE_URL:}
     email:
       enabled: ${EMAIL_ENABLED:false}
+      provider: ${EMAIL_PROVIDER:}
       from: ${EMAIL_FROM:}
+      resend:
+        api-key: ${RESEND_API_KEY:}
+        from: ${RESEND_FROM:}
   storage:
     minio:
       enabled: ${MINIO_ENABLED:true}

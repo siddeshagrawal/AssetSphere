@@ -93,8 +93,7 @@ public class BillingWebhookService {
                         throw new com.assetsphere.modules.common.exception.ConflictException(
                                 "Stripe invoice does not match the workspace subscription purchase");
                     }
-                    billing.renewPaidPlan(payment.getWorkspaceId(), event.provider(), event.providerPaymentId(),
-                            event.periodStart(), event.periodEnd());
+                    billing.renewPaidPlan(payment.getWorkspaceId(), event.provider(), event.providerPaymentId());
                     processed = true;
                 } else if (event.status() == PaymentWebhookStatus.CANCELED) {
                     billing.cancelPaidPlan(payment.getWorkspaceId(), event.provider(), event.providerPaymentId());

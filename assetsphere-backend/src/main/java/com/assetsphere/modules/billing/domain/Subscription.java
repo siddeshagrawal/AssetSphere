@@ -61,6 +61,20 @@ public class Subscription extends BaseEntity {
     }
 
     public void activatePro(String paymentProvider, String externalPaymentId, Instant start, Instant end) {
+        requireValidPeriod(start, end);
+        activatePaidIdentity(paymentProvider, externalPaymentId);
+        currentPeriodStart = start;
+        usagePeriodStart = start;
+        currentPeriodEnd = end;
+    }
+
+    public void activateProAwaitingProviderPeriod(String paymentProvider, String externalPaymentId,
+                                                  Instant usageStart) {
+        activatePaidIdentity(paymentProvider, externalPaymentId);
+        usagePeriodStart = usageStart;
+    }
+
+    private void activatePaidIdentity(String paymentProvider, String externalPaymentId) {
         if (paymentProvider == null || paymentProvider.isBlank()) {
             throw new IllegalArgumentException("Payment provider is required");
         }
@@ -75,9 +89,6 @@ public class Subscription extends BaseEntity {
         status = SubscriptionStatus.ACTIVE;
         this.paymentProvider = paymentProvider;
         externalSubscriptionId = externalPaymentId;
-        currentPeriodStart = start;
-        usagePeriodStart = start;
-        currentPeriodEnd = end;
         cancelAtPeriodEnd = false;
     }
 
@@ -89,6 +100,7 @@ public class Subscription extends BaseEntity {
     }
 
     public void synchronizePeriod(Instant start, Instant end) {
+        if (start != null || end != null) requireValidPeriod(start, end);
         advanceUsagePeriodWhenNewer(start);
         if (start != null) currentPeriodStart = start;
         if (end != null) currentPeriodEnd = end;
@@ -96,6 +108,7 @@ public class Subscription extends BaseEntity {
     }
 
     public void synchronizePeriodWithoutActivation(Instant start, Instant end) {
+        if (start != null || end != null) requireValidPeriod(start, end);
         advanceUsagePeriodWhenNewer(start);
         if (start != null) currentPeriodStart = start;
         if (end != null) currentPeriodEnd = end;
@@ -140,6 +153,10 @@ public class Subscription extends BaseEntity {
 
     public void markPastDue() { status = SubscriptionStatus.PAST_DUE; }
 
+    public void restorePaidEntitlement() {
+        if (plan == Plan.PRO && hasExternalSubscriptionIdentity()) status = SubscriptionStatus.ACTIVE;
+    }
+
     public void cancel(Instant freePeriodStart, Instant freePeriodEnd) {
         plan = Plan.FREE;
         status = SubscriptionStatus.ACTIVE;
@@ -153,6 +170,12 @@ public class Subscription extends BaseEntity {
 
     private void advanceUsagePeriodWhenNewer(Instant start) {
         if (start != null && !start.isBefore(currentPeriodEnd)) usagePeriodStart = start;
+    }
+
+    private void requireValidPeriod(Instant start, Instant end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("Subscription period must have an end after its start");
+        }
     }
 
     private void requireExternalIdentity(String value) {

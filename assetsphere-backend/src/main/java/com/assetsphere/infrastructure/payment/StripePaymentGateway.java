@@ -139,10 +139,10 @@ class StripePaymentGateway implements PaymentGateway {
             String actualEventId = root.path("id").asText(eventId);
             long amount = type.startsWith("invoice.") ? session.path("amount_paid").asLong(0)
                     : session.path("amount_total").asLong(0);
-            Instant periodStart = type.startsWith("invoice.")
-                    ? epoch(session, "period_start") : epoch(session, "current_period_start");
-            Instant periodEnd = type.startsWith("invoice.")
-                    ? epoch(session, "period_end") : epoch(session, "current_period_end");
+            Instant periodStart = type.startsWith("customer.subscription.")
+                    ? epoch(session, "current_period_start") : null;
+            Instant periodEnd = type.startsWith("customer.subscription.")
+                    ? epoch(session, "current_period_end") : null;
             Boolean cancelAtPeriodEnd = type.startsWith("customer.subscription")
                     ? session.path("cancel_at_period_end").asBoolean(false) : null;
             Instant occurredAt = epoch(root, "created");

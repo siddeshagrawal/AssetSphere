@@ -168,6 +168,15 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
             return;
         }
         Instant now = clock.now();
+        if (provider == PaymentProvider.STRIPE) {
+            if (authoritativeStart == null && authoritativeEnd == null) {
+                subscription.activateProAwaitingProviderPeriod(provider.name(), externalPaymentId, now);
+                return;
+            }
+            if (!validPeriod(authoritativeStart, authoritativeEnd)) {
+                throw new BusinessRuleViolationException("Stripe subscription period is invalid");
+            }
+        }
         Instant start = authoritativeStart == null ? now : authoritativeStart;
         Instant end = authoritativeEnd == null ? plusMonth(start) : authoritativeEnd;
         subscription.activatePro(provider.name(), externalPaymentId, start, end);
@@ -203,7 +212,12 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
     public void renewPaidPlan(UUID workspaceId, PaymentProvider provider, String externalSubscriptionId,
                               Instant authoritativeStart, Instant authoritativeEnd) {
         Subscription subscription = lockedSubscription(workspaceId);
-        if (subscription.matches(provider.name(), externalSubscriptionId) && !subscription.isCancelAtPeriodEnd()) {
+        if (!subscription.matches(provider.name(), externalSubscriptionId)) return;
+        if (provider == PaymentProvider.STRIPE) {
+            subscription.restorePaidEntitlement();
+            return;
+        }
+        if (!subscription.isCancelAtPeriodEnd()) {
             if (authoritativeEnd != null) {
                 subscription.synchronizePeriod(authoritativeStart, authoritativeEnd);
                 return;
@@ -259,10 +273,13 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
             Instant now = clock.now();
             subscription.cancel(monthStart(now), nextMonth(now));
         } else if (providerStatus.entitled()) {
+            if (!validPeriod(periodStart, periodEnd)) return;
             subscription.synchronizePeriod(periodStart, periodEnd);
             subscription.synchronizeCancellation(cancelAtPeriodEnd);
         } else {
-            subscription.synchronizePeriodWithoutActivation(periodStart, periodEnd);
+            if (validPeriod(periodStart, periodEnd)) {
+                subscription.synchronizePeriodWithoutActivation(periodStart, periodEnd);
+            }
             subscription.synchronizeCancellation(cancelAtPeriodEnd);
             subscription.markPastDue();
         }
@@ -313,6 +330,10 @@ public class BillingService implements BillingEntitlementFacade, WorkspacePlanPr
 
     private Instant plusMonth(Instant instant) {
         return instant.atZone(ZoneOffset.UTC).plusMonths(1).toInstant();
+    }
+
+    private boolean validPeriod(Instant start, Instant end) {
+        return start != null && end != null && end.isAfter(start);
     }
 
     private boolean activePro(Subscription subscription) {

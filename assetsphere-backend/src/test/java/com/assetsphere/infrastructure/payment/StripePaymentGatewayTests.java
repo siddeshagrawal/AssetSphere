@@ -78,8 +78,8 @@ class StripePaymentGatewayTests {
                 """);
 
         assertThat(event.providerPaymentId()).isEqualTo("sub_123");
-        assertThat(event.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
-        assertThat(event.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
+        assertThat(event.periodStart()).isNull();
+        assertThat(event.periodEnd()).isNull();
     }
 
     @Test
@@ -89,6 +89,31 @@ class StripePaymentGatewayTests {
                 """);
 
         assertThat(event.providerPaymentId()).isEqualTo("sub_legacy");
+    }
+
+    @Test
+    void invoiceAggregationWindowIsNeverExposedAsSubscriptionPeriod() throws Exception {
+        var event = verifiedEvent("invoice.paid", """
+                {"id":"in_1","amount_paid":99900,"currency":"inr","subscription":"sub_123",
+                 "period_start":1785522600,"period_end":1785522600}
+                """);
+
+        assertThat(event.status()).isEqualTo(PaymentWebhookStatus.SUCCEEDED);
+        assertThat(event.providerPaymentId()).isEqualTo("sub_123");
+        assertThat(event.periodStart()).isNull();
+        assertThat(event.periodEnd()).isNull();
+    }
+
+    @Test
+    void checkoutSessionPeriodLikeFieldsAreNotTreatedAsSubscriptionPeriod() throws Exception {
+        var event = verifiedEvent("checkout.session.completed", """
+                {"id":"cs_1","payment_status":"paid","subscription":"sub_123",
+                 "amount_total":99900,"currency":"inr","current_period_start":1785522600,
+                 "current_period_end":1788201000}
+                """);
+
+        assertThat(event.periodStart()).isNull();
+        assertThat(event.periodEnd()).isNull();
     }
 
     @Test
@@ -104,6 +129,8 @@ class StripePaymentGatewayTests {
         assertThat(updated.status()).isEqualTo(PaymentWebhookStatus.IGNORED);
         assertThat(updated.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.ACTIVE);
         assertThat(updated.cancelAtPeriodEnd()).isTrue();
+        assertThat(updated.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
+        assertThat(updated.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
         assertThat(deleted.status()).isEqualTo(PaymentWebhookStatus.CANCELED);
         assertThat(deleted.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.CANCELED);
     }

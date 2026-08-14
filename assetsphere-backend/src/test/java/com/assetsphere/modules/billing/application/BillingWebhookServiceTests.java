@@ -52,13 +52,13 @@ class BillingWebhookServiceTests {
     }
 
     @Test
-    void passesStripeSubscriptionPeriodToConfirmation() {
+    void checkoutConfirmationDoesNotAssumeSubscriptionPeriodFields() {
         BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
                 PaymentProvider.STRIPE, "key", "receipt", 99_900, "INR");
         payment.orderCreated("checkout_123", null);
         PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_123",
                 "checkout.session.completed", "checkout_123", "sub_123", 99_900, "INR",
-                PaymentWebhookStatus.SUCCEEDED, NOW, true, PERIOD_START, PERIOD_END, false);
+                PaymentWebhookStatus.SUCCEEDED, NOW, true);
         Fixture fixture = fixture(event);
         when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, "event_123", event.eventType(),
                 fixture.payloadHash, NOW)).thenReturn(true);
@@ -68,7 +68,57 @@ class BillingWebhookServiceTests {
         fixture.service.handle(PaymentProvider.STRIPE, "event_123", "{}", "signature");
 
         verify(fixture.confirmations).succeeded(PaymentProvider.STRIPE, "checkout_123", "sub_123",
-                99_900, "INR", PERIOD_START, PERIOD_END);
+                99_900, "INR", null, null);
+    }
+
+    @Test
+    void invoicePaidNeverPassesInvoiceAggregationPeriodToSubscriptionRenewal() {
+        BillingPayment payment = stripePaidPayment();
+        PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_invoice",
+                "invoice.paid", null, "sub_123", 99_900, "INR",
+                PaymentWebhookStatus.SUCCEEDED, NOW, true, NOW, NOW, null);
+        Fixture fixture = fixture(event);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, event.eventId(), event.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+                .thenReturn(Optional.of(payment));
+
+        fixture.service.handle(PaymentProvider.STRIPE, event.eventId(), "{}", "signature");
+
+        verify(fixture.billing).renewPaidPlan(payment.getWorkspaceId(), PaymentProvider.STRIPE, "sub_123");
+        verify(fixture.billing, never()).renewPaidPlan(payment.getWorkspaceId(), PaymentProvider.STRIPE,
+                "sub_123", NOW, NOW);
+    }
+
+    @Test
+    void duplicateAndStaleInvoicePaidEventsDoNotRenewAgain() {
+        PaymentWebhookEvent duplicate = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_duplicate_invoice",
+                "invoice.paid", null, "sub_123", 99_900, "INR",
+                PaymentWebhookStatus.SUCCEEDED, NOW, true);
+        Fixture duplicateFixture = fixture(duplicate);
+        when(duplicateFixture.webhookEvents.claim(PaymentProvider.STRIPE, duplicate.eventId(), duplicate.eventType(),
+                duplicateFixture.payloadHash, NOW)).thenReturn(false);
+
+        duplicateFixture.service.handle(PaymentProvider.STRIPE, duplicate.eventId(), "{}", "signature");
+
+        verify(duplicateFixture.billing, never()).renewPaidPlan(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+
+        PaymentWebhookEvent stale = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_stale_invoice",
+                "invoice.paid", null, "sub_123", 99_900, "INR",
+                PaymentWebhookStatus.SUCCEEDED, NOW.minusSeconds(60), true);
+        Fixture staleFixture = fixture(stale);
+        when(staleFixture.webhookEvents.claim(PaymentProvider.STRIPE, stale.eventId(), stale.eventType(),
+                staleFixture.payloadHash, NOW)).thenReturn(true);
+        when(staleFixture.providerEvents.accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                stale.occurredAt(), 300, stale.eventId())).thenReturn(false);
+
+        staleFixture.service.handle(PaymentProvider.STRIPE, stale.eventId(), "{}", "signature");
+
+        verify(staleFixture.billing, never()).renewPaidPlan(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

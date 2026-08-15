@@ -60,14 +60,14 @@ flowchart LR
   API --> Resend[Resend invitation email]
 ```
 
-The backend is a modular monolith: module APIs preserve ownership boundaries while one deployable retains transactional consistency. See [Architecture](docs/ARCHITECTURE.md), [Hackathon Evidence](docs/HACKATHON_EVIDENCE.md), [Deployment](docs/DEPLOYMENT.md), and the [4-Minute Demo Script](docs/DEMO_SCRIPT.md).
+The backend is a modular monolith: module APIs preserve ownership boundaries while one deployable retains transactional consistency. See [Architecture](docs/ARCHITECTURE.md), [Hackathon Engineering Evidence](docs/HACKATHON_EVIDENCE.md), and [Deployment](docs/DEPLOYMENT.md).
 
 ## Local Quick Start
 
 1. Start PostgreSQL/pgvector, Redis, Kafka, and MinIO using the repository's local infrastructure.
 2. Copy the backend and frontend `.env.example` templates and provide local-only values.
 3. Run the backend from `assetsphere-backend/` and frontend from `assetsphere-frontend/`.
-4. Register, create a workspace, and follow `docs/DEMO_SCRIPT.md`.
+4. Register, create a workspace, upload an asset, and explore Search, Ask AssetSphere, Intelligence, and version history.
 
 Core configuration includes `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, Redis, Kafka, JWT, CORS, storage, and `VITE_API_BASE_URL`. AI, OAuth, email, and payments are feature-gated. Never commit secrets or expose backend credentials through `VITE_*` variables.
 

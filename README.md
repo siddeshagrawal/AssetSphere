@@ -38,7 +38,7 @@ Production uses managed PostgreSQL/pgvector, hosted TLS Redis, hosted Kafka/Redp
 | Kafka async processing | Extraction, search indexing, semantic indexing, and intelligence listeners | Keeps uploads responsive while expensive processing runs independently |
 | Retry and DLT | Topic-specific Kafka retry/dead-letter configuration and operator flow | Bounds transient retries and preserves terminal failures for diagnosis |
 | Caching | Redis-backed provider/payment status and application caches | Reduces repeated remote work while retaining authoritative backend state |
-| Rate limiting | Redis limiters for uploads, search, RAG, and AI operations | Protects shared infrastructure and provider spend |
+| Rate limiting | Redis limiters for uploads, semantic search, and RAG | Protects shared infrastructure and provider spend |
 | Distributed locking | Redis processing, intelligence, and semantic indexing locks | Prevents concurrent duplicate work for the same asset version |
 | Authorization and isolation | Workspace access facades plus workspace-scoped repository predicates | Enforces tenant boundaries before retrieval, storage, or provider invocation |
 | Version concurrency | Asset locking/version invariants in append-version transactions | Assigns each logical asset version number exactly once |

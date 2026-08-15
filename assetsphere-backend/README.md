@@ -43,7 +43,7 @@ To run the app in Docker as well, use `docker compose --profile app up --build`.
 
 ## Manual configuration
 
-Set `ASSETSPHERE_JWT_SECRET` before implementing authentication. The development profile requires `DB_USERNAME` and
+Set `ASSETSPHERE_JWT_SECRET` before running authentication-enabled environments. The development profile requires `DB_USERNAME` and
 `DB_PASSWORD`; Docker derives them from `POSTGRES_USER` and `POSTGRES_PASSWORD`. Production additionally requires
 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, Redis, Kafka, and S3-compatible storage configuration. The production image
 defaults to `prod`; selected Stripe configuration is validated at startup.

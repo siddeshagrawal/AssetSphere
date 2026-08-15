@@ -5,6 +5,7 @@ import { ErrorDisplay } from "@/components/shared/ErrorDisplay";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { useCancelSubscription, useCreateProCheckout, usePaymentCapabilities, usePlans, useWorkspaceBilling } from "@/features/billing/hooks";
 import { formatBackendDate, formatBytes } from "@/lib/utils";
 import type { CheckoutResponse } from "@/types/billing";
@@ -13,15 +14,31 @@ export function BillingPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { session } = useAuth();
+  const workspaceRole = session.status === "AUTHENTICATED"
+    ? session.workspaces.find((workspace) => workspace.id === workspaceId)?.role
+    : undefined;
+  const isOwner = workspaceRole === "OWNER";
   const [localOrder, setLocalOrder] = useState<CheckoutResponse | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const billing = useWorkspaceBilling(workspaceId, true);
+  const billing = useWorkspaceBilling(isOwner ? workspaceId : undefined, true);
   const capabilities = usePaymentCapabilities();
   const plans = usePlans();
   const checkout = useCreateProCheckout(workspaceId ?? "");
   const cancelSubscription = useCancelSubscription(workspaceId ?? "");
-  if (!workspaceId) return null;
+  if (!workspaceId || session.status !== "AUTHENTICATED") return null;
+
+  if (!isOwner) {
+    return <div className="p-6"><div className="mx-auto max-w-5xl">
+      <PageHeader title="Billing & plan" description="Workspace subscription and usage management." />
+      <section className="rounded-xl border border-border bg-card p-6">
+        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Owner-managed</p>
+        <h2 className="mt-2 text-xl font-semibold">Billing access is restricted</h2>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Only the workspace owner can view authoritative usage, start an upgrade, or manage the subscription. Your workspace access and available features remain governed by the current plan.</p>
+      </section>
+    </div></div>;
+  }
 
   const paymentPending = billing.data?.latestPaymentStatus === "CREATED"
     || billing.data?.latestPaymentStatus === "ORDER_CREATED";

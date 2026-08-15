@@ -46,7 +46,7 @@ Plan entitlements are centralized in Billing. One `BillingPayment` owns at most 
 - Flyway-managed PostgreSQL schema and pgvector indexes
 - Actuator health, readiness, and liveness probes
 
-Kafka consumers use bounded retries before topic-specific DLT publication. Operator replay validates the workspace and payload, resets feature-owned FAILED asset/semantic state, then republishes the unchanged business event identity. Malformed poison events are rejected; Kafka remains authoritative and no parallel database DLQ exists. This flow requires manual integration verification after deployment.
+Kafka consumers use bounded retries before topic-specific DLT publication. Operator replay validates the workspace and payload, resets feature-owned FAILED asset/semantic state, then republishes the unchanged business event identity. Malformed poison events are rejected; Kafka remains authoritative and no parallel database DLQ exists. In production, a FREE-plan OCR entitlement rejection exercised the bounded retry/DLT path; operator replay remains an explicit operational action.
 
 Operational retention for refresh tokens, idempotency records, processed events, outbox rows, webhook events, audits, and failed payment history is a post-hackathon concern; no generalized destructive cleanup runs automatically.
 

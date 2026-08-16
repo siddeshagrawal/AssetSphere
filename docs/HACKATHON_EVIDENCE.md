@@ -1,10 +1,10 @@
-# Hackathon Engineering Evidence
+# Engineering Implementation Reference
 
-This is the judge's fast path: **hackathon requirement → AssetSphere implementation → concrete classes/config → verification**.
+This reference maps AssetSphere's principal engineering concepts to concrete implementation paths, failure boundaries, runtime behavior, and focused tests. It complements the narrative [architecture guide](ARCHITECTURE.md) with a source-oriented index.
 
-## Requirements and Evidence
+## Implementation Map
 
-| Requirement | AssetSphere implementation | Concrete classes/config | Verification |
+| Concept | AssetSphere approach | Representative classes/config | Failure handling or validation |
 |---|---|---|---|
 | Spring Boot core backend | Java 21 REST backend with Security, validation, JPA/JDBC, scheduling, Kafka, Redis, Actuator, and Flyway | `assetsphere-backend/pom.xml`, `modules/*/api/*Controller.java`, `modules/common/web/GlobalExceptionHandler.java` | Public Swagger and health endpoints; verified backend suite |
 | Modular architecture | Spring Modulith modules declare allowed dependencies and expose named `api` interfaces | `modules/*/package-info.java`, `ModularityTests.java` | Spring Modulith verification included in the verified suite |
@@ -65,16 +65,16 @@ This is the judge's fast path: **hackathon requirement → AssetSphere implement
 - Provider/payment confirmation: `assetsphere-backend/src/main/java/com/assetsphere/modules/billing/application/ProviderPaymentConfirmationService.java`
 - Resend transport: `assetsphere-backend/src/main/java/com/assetsphere/infrastructure/notification/ResendWorkspaceInvitationEmailSender.java`
 
-## Feature Verification Matrix
+## Runtime Capability Reference
 
-| Capability | Frontend verification | API/Swagger verification | Expected result | Engineering evidence |
+| Capability | Web application path | API/Swagger path | Expected behavior | Implementation |
 |---|---|---|---|---|
 | Authentication | Register or Sign in | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Authenticated user and workspace memberships | Spring Security, BCrypt, JWT/refresh lifecycle |
 | Google OAuth | **Continue with Google** | `GET /auth/providers` confirms availability; OAuth browser flow handles callback | Authenticated AssetSphere session | Feature-gated Spring OAuth adapter and one-time frontend exchange |
 | Workspace isolation | Switch/create workspaces and compare visible data | `POST/GET /workspaces`, then try only IDs belonging to the authorized account | Only authorized workspace data is returned | `WorkspaceAccessFacade` plus workspace predicates |
 | Asset upload | **Assets** → **Upload asset** | `POST /workspaces/{workspaceId}/assets` multipart | Version 1 metadata and async processing state | Validation, entitlement, storage, transaction, outbox |
 | Upload idempotency | UI generates a request key transparently | Repeat exact upload with same `Idempotency-Key`; then change request under same key | Replay header for identical request; conflict for changed fingerprint | `AssetIdempotencyService`, `UploadFingerprint` |
-| Storage deduplication | Not directly surfaced — see source/evidence | Upload same bytes as distinct logical assets/versions | Logical records remain distinct while physical workspace object can be reused | SHA-256 lookup, canonical key, reference count |
+| Storage deduplication | Internal behavior — inspect the source map | Upload same bytes as distinct logical assets/versions | Logical records remain distinct while physical workspace object can be reused | SHA-256 lookup, canonical key, reference count |
 | Document extraction | Upload a supported document and wait for READY | Poll `GET /assets/{assetId}`; search extracted content | Extracted text becomes searchable | Format-specific `TextExtractor` implementations |
 | Image OCR | Upload/open prepared PNG/JPEG/WebP in entitled workspace | Normal asset upload/status/search APIs | Visible text becomes searchable after READY | `ImageTextExtractor`, `OpenAiImageOcrProvider` |
 | Video transcription | Upload/open prepared MP4/WebM in entitled workspace | Normal asset upload/status/search APIs | Spoken content becomes searchable after READY | `VideoTextExtractor`, `OpenAiMediaTranscriptionProvider` |
@@ -101,17 +101,17 @@ This is the judge's fast path: **hackathon requirement → AssetSphere implement
 | Verified webhook authority | UI waits/refetches after Checkout | Not a user call; inspect Stripe webhook source/evidence | Only verified provider event changes subscription | HMAC verification and payment/subscription confirmation |
 | Cancel at period end | OWNER cancellation action on active Stripe PRO | `POST /billing/cancel` | Scheduling flag; PRO remains active to period end | Stripe cancellation capability and subscription sync |
 | Local Razorpay development adapter | Not present in deployed production path | Available only when explicit dev mode/config selects it | Independent local demo provider; rejected in prod | Alternate `PaymentGateway` adapter and profile validation |
-| Transactional outbox | Not directly surfaced — see source/evidence | Observe async work after durable upload | Business state/outbox commit together | `@EventListener` + `Propagation.MANDATORY` |
+| Transactional outbox | Internal behavior — inspect the source map | Observe async work after durable upload | Business state/outbox commit together | `@EventListener` + `Propagation.MANDATORY` |
 | Kafka retry | Honest delayed/failed processing status | Not a normal direct endpoint | Bounded consumer retries before terminal handling | `KafkaReliabilityConfiguration` |
-| DLT | Not directly surfaced in normal UI | Feature-gated `/ops/dlt` for OWNER/ADMIN | Scoped inspection/replay when enabled | Dedicated DLTs and `DltOperationsService` |
+| DLT | Internal operational behavior | Feature-gated `/ops/dlt` for OWNER/ADMIN | Scoped inspection/replay when enabled | Dedicated DLTs and `DltOperationsService` |
 | Redis caching | Faster repeated asset detail; not directly identified | Repeat `GET /assets/{assetId}` | Same authoritative metadata; DB fallback on cache failure | `RedisAssetMetadataCache`, post-commit eviction |
 | Redis rate limiting | Typed UI error when a protected limit is exceeded | Exercise upload, semantic search, or Ask rapidly | `429` with retry information when limit is exceeded | Separate upload, semantic-search, and RAG limiters |
-| Redis distributed locking | Not directly surfaced — see source/evidence | Observe one processing result per version under duplicate delivery | Concurrent duplicate work suppressed | Processing/intelligence/semantic token-owned locks |
+| Redis distributed locking | Internal behavior — inspect the source map | Observe one processing result per version under duplicate delivery | Concurrent duplicate work suppressed | Processing/intelligence/semantic token-owned locks |
 | Actuator health | Open public health link | `GET /actuator/health`; readiness/liveness paths for operations | Current health status | Spring Boot Actuator |
 | Swagger/OpenAPI | Open public Swagger | Execute the README Swagger workflow | Discoverable v1 contract with bearer scheme | Springdoc and `OpenApiConfiguration` |
 | Production deployment | Use the public Vercel app | Public Railway API/Swagger/health | Working HTTPS system across managed dependencies | Vercel, Railway, managed PG/Redis/Kafka/storage |
 
-## Reliability Evidence
+## Reliability Internals
 
 ### 1. Transaction-bound event creation
 
@@ -157,7 +157,7 @@ AssetSphere is deliberately **at-least-once-safe and duplicate-tolerant**:
 
 No exactly-once or distributed-transaction claim is made.
 
-## Verified Product Evidence
+## Verified Runtime Behavior
 
 - Public frontend: https://assetsphere-mu.vercel.app
 - Public backend: https://assetsphere-production.up.railway.app
@@ -175,7 +175,7 @@ No exactly-once or distributed-transaction claim is made.
 
 Terminal Stripe cancellation at the future renewal boundary is not claimed as observed.
 
-## Test Evidence
+## Verified Test Coverage
 
 The last verified backend suite completed:
 

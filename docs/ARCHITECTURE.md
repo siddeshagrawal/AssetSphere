@@ -28,6 +28,10 @@ AssetSphere is designed to:
 
 ### Figure 1 — Production System Architecture
 
+**How to read this:** User traffic enters through the React application and the modular backend coordinates durable state, asynchronous processing, and external providers.
+
+**Why this design:** PostgreSQL remains authoritative while Redis, Kafka, object storage, and providers each serve a narrow operational role.
+
 ```mermaid
 flowchart TB
     User[Workspace user]
@@ -55,6 +59,8 @@ flowchart TB
     Google -->|OAuth callback| API
 ```
 
+**Failure/trade-off:** These services do not share a transaction. Outbox publication, idempotent consumers, provider verification, and compensation handle their separate failure boundaries.
+
 MinIO substitutes for S3-compatible storage locally. SMTP can substitute for Resend. `RAZORPAY_LOCAL` can substitute for Stripe only in development; the production profile rejects it.
 
 ## Modular Monolith Rationale
@@ -80,7 +86,7 @@ Each business package declares `@ApplicationModule(allowedDependencies = ...)`. 
 
 ### Trade-off
 
-Modules still share one runtime and database. A future extraction would require a real network contract, data ownership transition, and operational work; “microservice-ready” is not treated as a guarantee.
+Modules still share one runtime and database. A future extraction would require a real network contract, data ownership transition, and operational work; the current boundaries do not make that extraction automatic.
 
 ## Module Ownership and Dependency Direction
 
@@ -129,6 +135,10 @@ Controllers do not decide tenant access, payment authority, or AI grounding.
 
 ### Figure 2 — Upload and Asynchronous Processing
 
+**How to read this:** The numbered request path persists durable upload intent before the asynchronous extraction, indexing, and intelligence stages begin.
+
+**Why this design:** Expensive provider and parsing work stays outside the HTTP transaction while status remains visible to the user.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -169,6 +179,8 @@ sequenceDiagram
     Intelligence->>DB: sanitized result/status
 ```
 
+**Failure/trade-off:** Upload acceptance does not mean processing completion. Retries can redeliver work, so handlers use stable identities, state checks, and focused locks.
+
 The synchronous request establishes durable intent. The asynchronous path performs expensive work and updates `PROCESSING`, `READY`, or `FAILED` state honestly.
 
 ## Transactional Outbox Internals
@@ -191,6 +203,10 @@ Persist an outbox event in the original transaction, then publish it asynchronou
 - `OutboxPublishingStateService` marks publication or calculates bounded exponential retry; terminal publisher failure is stored separately from consumer DLT state.
 
 ### Figure 3 — Transactional Outbox Publication and Retry
+
+**How to read this:** Business state and the pending outbox row commit together; a separate publisher leases rows and waits for broker acknowledgement.
+
+**Why this design:** PostgreSQL can atomically own durable publication state without a direct database/Kafka dual write.
 
 ```mermaid
 sequenceDiagram
@@ -218,6 +234,8 @@ sequenceDiagram
         end
     end
 ```
+
+**Failure/trade-off:** Publication is at-least-once. A timeout after an uncertain send can cause redelivery, so consumers must remain duplicate-tolerant.
 
 ### Why PostgreSQL Claiming Instead of Redis Ownership?
 
@@ -293,6 +311,10 @@ The MVP already requires PostgreSQL for durable tenant/version state. pgvector k
 
 ### Figure 4 — Hybrid Retrieval and Grounded Ask
 
+**How to read this:** Authorization and rate limiting precede retrieval; Search ranks evidence and Intelligence owns bounded generation and citation validation.
+
+**Why this design:** Retrieval ownership stays in Search, while answer generation cannot invent trusted source metadata.
+
 ```mermaid
 sequenceDiagram
     participant Browser
@@ -327,6 +349,8 @@ sequenceDiagram
     end
 ```
 
+**Failure/trade-off:** Answers are constrained by indexed evidence and provider availability. Empty retrieval deliberately returns a deterministic no-model response.
+
 Retrieval is separated from generation so Search owns ranking and SQL while Intelligence owns prompts, model selection, output validation, and citation trust.
 
 ## Multimodal Extraction and Intelligence
@@ -359,6 +383,10 @@ Plan definitions and entitlements are centralized in Billing. Asset/storage capa
 
 ### Figure 5 — Stripe Checkout and Verified Subscription Synchronization
 
+**How to read this:** Checkout creates a provider session, but only a signed provider event can synchronize payment and subscription state.
+
+**Why this design:** Browser redirects are untrusted presentation signals; provider identity, ordering, periods, and cancellation remain backend-authoritative.
+
 ```mermaid
 sequenceDiagram
     participant Owner
@@ -384,6 +412,8 @@ sequenceDiagram
     Confirm->>DB: transactionally synchronize payment + subscription
     UI->>Billing: refetch authoritative billing state
 ```
+
+**Failure/trade-off:** Subscription state depends on webhook delivery and reconciliation. Duplicate and stale events are guarded, but provider operations remain externally observable dependencies.
 
 Stripe subscription identity, event occurrence ordering, authoritative period fields, and cancel-at-period-end state are synchronized from verified events. Conflicting active subscription IDs are rejected rather than overwritten. Production permits Stripe only; `RAZORPAY_LOCAL` is an explicit development adapter and cannot activate production behavior.
 

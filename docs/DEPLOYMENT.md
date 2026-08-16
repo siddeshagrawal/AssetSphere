@@ -2,7 +2,7 @@
 
 AssetSphere uses explicit Spring profiles. Local development uses `dev`; hosted deployments must set `SPRING_PROFILES_ACTIVE=prod`. Store credentials in the deployment platform's secret manager, never in source, frontend variables, images, or logs.
 
-## Deployed Hackathon Endpoints
+## Deployed Endpoints
 
 - Frontend: https://assetsphere-mu.vercel.app
 - Backend: https://assetsphere-production.up.railway.app

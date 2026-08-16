@@ -18,7 +18,8 @@ Run the application with the development profile:
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-The API starts at `http://localhost:8080`. Swagger UI is at `http://localhost:8080/swagger-ui.html`, health is at
+The API starts at `http://localhost:8080`. The Swagger UI entrypoint is `http://localhost:8080/swagger-ui.html`
+(Springdoc redirects to `/swagger-ui/index.html`), and health is at
 `http://localhost:8080/actuator/health`, Kafka UI is at `http://localhost:8081`, and the MinIO console is at
 `http://localhost:9001` (`minioadmin` / `minioadmin`).
 
@@ -43,7 +44,7 @@ To run the app in Docker as well, use `docker compose --profile app up --build`.
 
 ## Manual configuration
 
-Set `ASSETSPHERE_JWT_SECRET` before running authentication-enabled environments. The development profile requires `DB_USERNAME` and
+Authentication is implemented and enabled. Set `ASSETSPHERE_JWT_SECRET` to a strong non-placeholder value before starting the backend. The development profile requires `DB_USERNAME` and
 `DB_PASSWORD`; Docker derives them from `POSTGRES_USER` and `POSTGRES_PASSWORD`. Production additionally requires
 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, Redis, Kafka, and S3-compatible storage configuration. The production image
 defaults to `prod`; selected Stripe configuration is validated at startup.

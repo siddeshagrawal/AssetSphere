@@ -65,6 +65,52 @@ This is the judge's fast path: **hackathon requirement → AssetSphere implement
 - Provider/payment confirmation: `assetsphere-backend/src/main/java/com/assetsphere/modules/billing/application/ProviderPaymentConfirmationService.java`
 - Resend transport: `assetsphere-backend/src/main/java/com/assetsphere/infrastructure/notification/ResendWorkspaceInvitationEmailSender.java`
 
+## Feature Verification Matrix
+
+| Capability | Frontend verification | API/Swagger verification | Expected result | Engineering evidence |
+|---|---|---|---|---|
+| Authentication | Register or Sign in | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Authenticated user and workspace memberships | Spring Security, BCrypt, JWT/refresh lifecycle |
+| Google OAuth | **Continue with Google** | `GET /auth/providers` confirms availability; OAuth browser flow handles callback | Authenticated AssetSphere session | Feature-gated Spring OAuth adapter and one-time frontend exchange |
+| Workspace isolation | Switch/create workspaces and compare visible data | `POST/GET /workspaces`, then try only IDs belonging to the authorized account | Only authorized workspace data is returned | `WorkspaceAccessFacade` plus workspace predicates |
+| Asset upload | **Assets** → **Upload asset** | `POST /workspaces/{workspaceId}/assets` multipart | Version 1 metadata and async processing state | Validation, entitlement, storage, transaction, outbox |
+| Upload idempotency | UI generates a request key transparently | Repeat exact upload with same `Idempotency-Key`; then change request under same key | Replay header for identical request; conflict for changed fingerprint | `AssetIdempotencyService`, `UploadFingerprint` |
+| Storage deduplication | Not directly surfaced — see source/evidence | Upload same bytes as distinct logical assets/versions | Logical records remain distinct while physical workspace object can be reused | SHA-256 lookup, canonical key, reference count |
+| Document extraction | Upload a supported document and wait for READY | Poll `GET /assets/{assetId}`; search extracted content | Extracted text becomes searchable | Format-specific `TextExtractor` implementations |
+| Image OCR | Upload/open prepared PNG/JPEG/WebP in entitled workspace | Normal asset upload/status/search APIs | Visible text becomes searchable after READY | `ImageTextExtractor`, `OpenAiImageOcrProvider` |
+| Video transcription | Upload/open prepared MP4/WebM in entitled workspace | Normal asset upload/status/search APIs | Spoken content becomes searchable after READY | `VideoTextExtractor`, `OpenAiMediaTranscriptionProvider` |
+| Processing status | Asset list/detail badges | `GET /assets/{assetId}` | `UPLOADED/QUEUED/PROCESSING/READY/PARTIALLY_PROCESSED/FAILED` | Async processing lifecycle persisted on version |
+| Asset download | Download from list/detail | `GET /assets/{assetId}/versions/{versionNumber}/download` | Exact bytes, filename, MIME type, and length | Authorized version lookup and storage streaming |
+| Version history | Asset detail **Version history** | `GET /assets/{assetId}/versions` | Immutable versions with independent statuses | `Asset`/`AssetVersion` separation |
+| Append version | **Upload new version** | `POST /assets/{assetId}/versions` multipart + idempotency key | Same asset ID, incremented version, full reprocessing | Pessimistic asset lock and reused upload pipeline |
+| Evolution | **Compare versions** | `POST /assets/{assetId}/compare` | Structured change analysis for selected versions | Exact-version content bounds and `AssetEvolutionModel` |
+| Lexical search | Search mode **Lexical** | `GET /search?q=...&mode=LEXICAL` | Exact terms/phrases prioritized | PostgreSQL full-text search |
+| Semantic search | Search mode **Semantic** | `GET /search?q=...&mode=SEMANTIC` | Meaning-related results | OpenAI query embedding + pgvector `<=>` |
+| Hybrid/RRF | Search mode **Hybrid** | `GET /search?q=...&mode=HYBRID` | Balanced deterministic ranking | Rank fusion in `SearchApplicationService` |
+| Ask/RAG | **Ask AssetSphere** | `POST /ask` | Grounded answer or deterministic no-evidence response | Bounded Search evidence and QA model port |
+| Trusted citations | Open source cards under answer | Inspect `citations[]` | `S1...` plus trusted asset/version/snippet metadata | Unknown removal, deduplication, source-order preservation |
+| Intelligence | Asset detail **Generate AI Insights** | `POST /versions/{n}/intelligence/generate`, then GET | Status plus summary, key points, and tags | Exact-version scope, model entitlement, sanitizer |
+| Grounded Insights | **Insights** page or asset **Generate insight** | `POST /insights` or exact-version `/insights` | Selected insight type with trusted source metadata | Bounded workspace evidence/exact content and insight model port |
+| Knowledge Checks | **Insights** → **Knowledge Check** from workspace/asset context | `POST /quiz` or exact-version `/quiz` | Requested bounded quiz with grounded source IDs | Quiz quota, difficulty/count bounds, trusted-source filtering |
+| Members | **Members** page | `GET /workspaces/{workspaceId}/members` | Real identities, roles, statuses, join times | Workspace membership service |
+| Invitations | **Invite member** and acceptance page | `POST /invitations`; validate/accept routes for recipient | Expiring single-use email-bound invitation | Resend/SMTP port, token ownership, expiry |
+| RBAC | Compare OWNER and MEMBER controls | Attempt owner/admin vs member operations | Unauthorized mutations rejected by backend | Role checks in workspace/billing/ops services |
+| Audit/activity | **Overview** recent activity | `GET /workspaces/{workspaceId}/activity` | Bounded actor/action/resource timeline | `AuditService`, `AuditRecord`, activity query |
+| FREE/PRO/ENTERPRISE | **Billing & plan** comparison | `GET /billing/plans`, `GET /workspaces/{workspaceId}/billing` | Central entitlements and current plan/status | `BillingProperties`, `BillingService` |
+| Usage/quota enforcement | Usage bars and clear quota errors | Invoke an entitled operation at/over its limit | Atomic use or typed quota rejection | `BillingUsageRepository`, `consume`, `consumeOnce` |
+| Stripe checkout | OWNER **Upgrade to PRO** | `POST /billing/checkout` + idempotency key | Stripe TEST hosted URL and backend-owned amount | `PaymentGateway`, checkout reservation, Stripe adapter |
+| Verified webhook authority | UI waits/refetches after Checkout | Not a user call; inspect Stripe webhook source/evidence | Only verified provider event changes subscription | HMAC verification and payment/subscription confirmation |
+| Cancel at period end | OWNER cancellation action on active Stripe PRO | `POST /billing/cancel` | Scheduling flag; PRO remains active to period end | Stripe cancellation capability and subscription sync |
+| Local Razorpay development adapter | Not present in deployed production path | Available only when explicit dev mode/config selects it | Independent local demo provider; rejected in prod | Alternate `PaymentGateway` adapter and profile validation |
+| Transactional outbox | Not directly surfaced — see source/evidence | Observe async work after durable upload | Business state/outbox commit together | `@EventListener` + `Propagation.MANDATORY` |
+| Kafka retry | Honest delayed/failed processing status | Not a normal direct endpoint | Bounded consumer retries before terminal handling | `KafkaReliabilityConfiguration` |
+| DLT | Not directly surfaced in normal UI | Feature-gated `/ops/dlt` for OWNER/ADMIN | Scoped inspection/replay when enabled | Dedicated DLTs and `DltOperationsService` |
+| Redis caching | Faster repeated asset detail; not directly identified | Repeat `GET /assets/{assetId}` | Same authoritative metadata; DB fallback on cache failure | `RedisAssetMetadataCache`, post-commit eviction |
+| Redis rate limiting | Typed UI error when a protected limit is exceeded | Exercise upload, semantic search, or Ask rapidly | `429` with retry information when limit is exceeded | Separate upload, semantic-search, and RAG limiters |
+| Redis distributed locking | Not directly surfaced — see source/evidence | Observe one processing result per version under duplicate delivery | Concurrent duplicate work suppressed | Processing/intelligence/semantic token-owned locks |
+| Actuator health | Open public health link | `GET /actuator/health`; readiness/liveness paths for operations | Current health status | Spring Boot Actuator |
+| Swagger/OpenAPI | Open public Swagger | Execute the README Swagger workflow | Discoverable v1 contract with bearer scheme | Springdoc and `OpenApiConfiguration` |
+| Production deployment | Use the public Vercel app | Public Railway API/Swagger/health | Working HTTPS system across managed dependencies | Vercel, Railway, managed PG/Redis/Kafka/storage |
+
 ## Reliability Evidence
 
 ### 1. Transaction-bound event creation

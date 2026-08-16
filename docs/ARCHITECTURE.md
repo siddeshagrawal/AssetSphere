@@ -26,6 +26,8 @@ AssetSphere is designed to:
 
 ## System Context and Containers
 
+### Figure 1 — Production System Architecture
+
 ```mermaid
 flowchart TB
     User[Workspace user]
@@ -125,6 +127,8 @@ Controllers do not decide tenant access, payment authority, or AI grounding.
 
 ## Upload and Processing Sequence
 
+### Figure 2 — Upload and Asynchronous Processing
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -185,6 +189,8 @@ Persist an outbox event in the original transaction, then publish it asynchronou
 - A claim records owner and timestamp. Stale `PROCESSING` claims become eligible after the configured lease duration.
 - `KafkaOutboxMessagePublisher` waits for `KafkaTemplate` acknowledgement within a configured timeout.
 - `OutboxPublishingStateService` marks publication or calculates bounded exponential retry; terminal publisher failure is stored separately from consumer DLT state.
+
+### Figure 3 — Transactional Outbox Publication and Retry
 
 ```mermaid
 sequenceDiagram
@@ -285,6 +291,8 @@ The MVP already requires PostgreSQL for durable tenant/version state. pgvector k
 
 ## Search and Grounded RAG Sequence
 
+### Figure 4 — Hybrid Retrieval and Grounded Ask
+
 ```mermaid
 sequenceDiagram
     participant Browser
@@ -348,6 +356,8 @@ Authentication establishes identity, but application authorization establishes t
 Plan definitions and entitlements are centralized in Billing. Asset/storage capacity and period-based AI/Ask/Evolution/quiz usage are checked on the backend. `BillingUsageRepository` uses atomic SQL to increment within a limit; operation-aware usage supports idempotent consumption where a stable operation ID exists.
 
 `PaymentGateway` abstracts checkout creation, webhook verification, and optional cancellation. `StripePaymentGateway` creates subscription Checkout from backend-owned pricing and builds workspace-specific return URLs. The browser success/cancel query is presentation only.
+
+### Figure 5 — Stripe Checkout and Verified Subscription Synchronization
 
 ```mermaid
 sequenceDiagram

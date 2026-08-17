@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.util.UUID;
 
 import lombok.AllArgsConstructor;
@@ -15,7 +16,13 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "workspaces")
+@Table(
+        name = "workspaces",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_workspaces_creator_slug",
+                columnNames = {"creator_user_id", "slug"}
+        )
+)
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -24,7 +31,7 @@ public class Workspace extends BaseEntity {
     @Column(nullable = false, length = 160)
     private String name;
 
-    @Column(nullable = false, unique = true, length = 160)
+    @Column(nullable = false, length = 160)
     private String slug;
 
     @Column(length = 2000)

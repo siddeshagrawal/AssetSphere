@@ -2,7 +2,7 @@ package com.assetsphere.modules.workspace.application;
 
 import com.assetsphere.modules.audit.api.AuditAction;
 import com.assetsphere.modules.audit.api.AuditService;
-import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
+import com.assetsphere.modules.common.exception.ConflictException;
 import com.assetsphere.modules.common.exception.ResourceNotFoundException;
 import com.assetsphere.modules.common.time.ClockProvider;
 import com.assetsphere.modules.workspace.api.WorkspaceFacade;
@@ -80,26 +80,32 @@ public class WorkspaceService implements WorkspaceFacade {
 
     @Transactional
     public WorkspaceResponse create(UUID actorUserId, CreateWorkspaceRequest request) {
+        String slug = SlugNormalizer.normalize(request.slug());
+        if (workspaceRepository.existsByCreatorUserIdAndSlug(actorUserId, slug)) {
+            throw duplicateSlug();
+        }
+        Workspace workspace;
         try {
-            Workspace workspace = workspaceRepository.save(Workspace.builder()
+            workspace = workspaceRepository.saveAndFlush(Workspace.builder()
                     .name(request.name().trim())
-                    .slug(SlugNormalizer.normalize(request.slug()))
+                    .slug(slug)
                     .description(request.description())
                     .status(WorkspaceStatus.ACTIVE)
                     .creatorUserId(actorUserId)
                     .build());
-            workspaceMemberRepository.save(new WorkspaceMember(
-                    workspace.getId(),
-                    actorUserId,
-                    WorkspaceRole.OWNER,
-                    actorUserId,
-                    clockProvider.now()
-            ));
-            auditService.record(actorUserId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{}");
-            return toResponse(workspace);
         } catch (DataIntegrityViolationException exception) {
-            throw new BusinessRuleViolationException("Workspace slug is already in use");
+            if (isCreatorSlugConflict(exception)) throw duplicateSlug();
+            throw exception;
         }
+        workspaceMemberRepository.save(new WorkspaceMember(
+                workspace.getId(),
+                actorUserId,
+                WorkspaceRole.OWNER,
+                actorUserId,
+                clockProvider.now()
+        ));
+        auditService.record(actorUserId, AuditAction.WORKSPACE_CREATED, workspace.getId(), "WORKSPACE", workspace.getId(), "{}");
+        return toResponse(workspace);
     }
 
     @Transactional(readOnly = true)
@@ -138,5 +144,20 @@ public class WorkspaceService implements WorkspaceFacade {
 
     private String trimToNull(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private ConflictException duplicateSlug() {
+        return new ConflictException("You already have a workspace with this slug");
+    }
+
+    private boolean isCreatorSlugConflict(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause.getMessage() != null && cause.getMessage().contains("uk_workspaces_creator_slug")) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 }

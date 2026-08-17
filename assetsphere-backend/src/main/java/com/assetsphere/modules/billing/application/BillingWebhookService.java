@@ -78,7 +78,7 @@ public class BillingWebhookService {
             var payment = payments.findLockedByProviderAndProviderPaymentId(
                     event.provider(), event.providerPaymentId()).orElse(null);
             if (payment != null && payment.getStatus() == com.assetsphere.modules.billing.api.PaymentStatus.PAID) {
-                if ("customer.subscription.updated".equals(event.eventType())) {
+                if (isStripeSubscriptionSynchronizationEvent(event)) {
                     if (event.cancelAtPeriodEnd() != null && event.subscriptionStatus() != null) {
                         billing.synchronizeStripeSubscription(payment.getWorkspaceId(), event.providerPaymentId(),
                                 event.periodStart(), event.periodEnd(), event.cancelAtPeriodEnd(),
@@ -116,13 +116,13 @@ public class BillingWebhookService {
         if (event.provider() != PaymentProvider.STRIPE) return false;
         return (event.eventType().startsWith("checkout.session.") && event.status() == PaymentWebhookStatus.SUCCEEDED)
                 || (event.eventType().startsWith("invoice.") && event.status() != PaymentWebhookStatus.IGNORED)
-                || "customer.subscription.updated".equals(event.eventType())
+                || isStripeSubscriptionSynchronizationEvent(event)
                 || "customer.subscription.deleted".equals(event.eventType());
     }
 
     private String providerIdentity(com.assetsphere.modules.billing.api.PaymentWebhookEvent event) {
         if (event.provider() != PaymentProvider.STRIPE) return null;
-        if ("customer.subscription.updated".equals(event.eventType())
+        if (isStripeSubscriptionSynchronizationEvent(event)
                 && event.subscriptionStatus()
                 == com.assetsphere.modules.billing.api.ProviderSubscriptionStatus.UNKNOWN) return null;
         if (event.providerOrderId() != null) return "ORDER:" + event.providerOrderId();
@@ -146,12 +146,21 @@ public class BillingWebhookService {
                 != com.assetsphere.modules.billing.api.ProviderSubscriptionStatus.UNKNOWN) return 450;
         if ("customer.subscription.updated".equals(event.eventType())
                 && event.subscriptionStatus() != null && event.subscriptionStatus().entitled()) return 350;
+        if ("customer.subscription.created".equals(event.eventType())
+                && event.subscriptionStatus() != null && event.subscriptionStatus().entitled()) return 340;
         return switch (event.status()) {
             case FAILED -> 400;
             case SUCCEEDED -> 300;
             case CANCELED -> 500;
             case IGNORED -> 200;
         };
+    }
+
+    private boolean isStripeSubscriptionSynchronizationEvent(
+            com.assetsphere.modules.billing.api.PaymentWebhookEvent event) {
+        return event.provider() == PaymentProvider.STRIPE
+                && ("customer.subscription.created".equals(event.eventType())
+                || "customer.subscription.updated".equals(event.eventType()));
     }
 
     private String sha256(String payload) {

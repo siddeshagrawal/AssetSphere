@@ -76,4 +76,21 @@ class BillingLifecycleRepositoryPostgresIntegrationTests {
                     PaymentProvider.STRIPE.name(), identity);
         }
     }
+
+    @Test
+    void subscriptionUpdatedWinsOverCreatedAtTheSameProviderTimestamp() {
+        String identity = "SUBSCRIPTION:sub_test_" + UUID.randomUUID();
+        Instant occurredAt = Instant.parse("2026-08-14T12:00:00Z");
+        try {
+            assertThat(providerEvents.accept(PaymentProvider.STRIPE, identity,
+                    occurredAt, 340, "evt_created")).isTrue();
+            assertThat(providerEvents.accept(PaymentProvider.STRIPE, identity,
+                    occurredAt, 350, "evt_updated")).isTrue();
+            assertThat(providerEvents.accept(PaymentProvider.STRIPE, identity,
+                    occurredAt, 340, "evt_created_late")).isFalse();
+        } finally {
+            jdbc.update("DELETE FROM billing_provider_event_state WHERE provider = ? AND provider_identity = ?",
+                    PaymentProvider.STRIPE.name(), identity);
+        }
+    }
 }

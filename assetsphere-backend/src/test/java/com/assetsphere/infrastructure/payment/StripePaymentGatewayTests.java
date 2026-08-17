@@ -150,6 +150,20 @@ class StripePaymentGatewayTests {
     }
 
     @Test
+    void modernCreatedSubscriptionUsesSingleItemAuthoritativePeriod() throws Exception {
+        var event = verifiedEvent("customer.subscription.created", """
+                {"id":"sub_123","status":"active","cancel_at_period_end":false,
+                 "items":{"data":[{"id":"si_123","current_period_start":1785522600,
+                 "current_period_end":1788201000}]}}
+                """);
+
+        assertThat(event.providerPaymentId()).isEqualTo("sub_123");
+        assertThat(event.subscriptionStatus()).isEqualTo(ProviderSubscriptionStatus.ACTIVE);
+        assertThat(event.periodStart()).isEqualTo(Instant.ofEpochSecond(1785522600));
+        assertThat(event.periodEnd()).isEqualTo(Instant.ofEpochSecond(1788201000));
+    }
+
+    @Test
     void malformedZeroLengthItemPeriodIsNotExposed() throws Exception {
         var event = verifiedEvent("customer.subscription.updated", """
                 {"id":"sub_123","status":"active","cancel_at_period_end":false,

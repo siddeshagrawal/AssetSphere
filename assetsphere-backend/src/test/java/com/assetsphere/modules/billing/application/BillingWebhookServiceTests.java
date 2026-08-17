@@ -171,6 +171,8 @@ class BillingWebhookServiceTests {
 
         updateFixture.service.handle(PaymentProvider.STRIPE, "event_123", "{}", "signature");
 
+        verify(updateFixture.providerEvents).accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                NOW, 350, "event_123");
         verify(updateFixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
                 PERIOD_START, PERIOD_END, true, ProviderSubscriptionStatus.ACTIVE);
 
@@ -186,6 +188,91 @@ class BillingWebhookServiceTests {
         deleteFixture.service.handle(PaymentProvider.STRIPE, "event_124", "{}", "signature");
 
         verify(deleteFixture.billing).cancelPaidPlan(payment.getWorkspaceId(), PaymentProvider.STRIPE, "sub_123");
+    }
+
+    @Test
+    void subscriptionCreatedSynchronizesAuthorizedPaidSubscription() {
+        BillingPayment payment = stripePaidPayment();
+        PaymentWebhookEvent created = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_created",
+                "customer.subscription.created", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.IGNORED, NOW, true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.ACTIVE);
+        Fixture fixture = fixture(created);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, created.eventId(), created.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+                .thenReturn(Optional.of(payment));
+
+        fixture.service.handle(PaymentProvider.STRIPE, created.eventId(), "{}", "signature");
+
+        verify(fixture.providerEvents).accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                NOW, 340, created.eventId());
+        verify(fixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
+                PERIOD_START, PERIOD_END, false, ProviderSubscriptionStatus.ACTIVE);
+        verify(fixture.webhookEvents).complete(PaymentProvider.STRIPE, created.eventId(), true, NOW);
+    }
+
+    @Test
+    void duplicateSubscriptionCreatedIsIdempotent() {
+        PaymentWebhookEvent created = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_created",
+                "customer.subscription.created", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.IGNORED, NOW, true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.ACTIVE);
+        Fixture fixture = fixture(created);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, created.eventId(), created.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(false);
+
+        fixture.service.handle(PaymentProvider.STRIPE, created.eventId(), "{}", "signature");
+
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void staleSubscriptionCreatedCannotOverwriteNewerSubscriptionState() {
+        PaymentWebhookEvent created = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_created",
+                "customer.subscription.created", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.IGNORED, NOW.minusSeconds(60), true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.ACTIVE);
+        Fixture fixture = fixture(created);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, created.eventId(), created.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.providerEvents.accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                created.occurredAt(), 340, created.eventId())).thenReturn(false);
+
+        fixture.service.handle(PaymentProvider.STRIPE, created.eventId(), "{}", "signature");
+
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.webhookEvents).complete(PaymentProvider.STRIPE, created.eventId(), false, NOW);
+    }
+
+    @Test
+    void subscriptionCreatedDoesNotGrantProWithoutPaidRelationship() {
+        BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
+                PaymentProvider.STRIPE, "key", "receipt", 99_900, "INR");
+        payment.orderCreated("checkout_123", null);
+        PaymentWebhookEvent created = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_created",
+                "customer.subscription.created", null, "sub_123", 0, "INR",
+                PaymentWebhookStatus.IGNORED, NOW, true, PERIOD_START, PERIOD_END, false,
+                ProviderSubscriptionStatus.ACTIVE);
+        Fixture fixture = fixture(created);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, created.eventId(), created.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderPaymentId(PaymentProvider.STRIPE, "sub_123"))
+                .thenReturn(Optional.of(payment));
+
+        fixture.service.handle(PaymentProvider.STRIPE, created.eventId(), "{}", "signature");
+
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.webhookEvents).complete(PaymentProvider.STRIPE, created.eventId(), false, NOW);
     }
 
     @Test

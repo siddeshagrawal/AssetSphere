@@ -70,7 +70,7 @@ export function CompareVersionsDialog({ workspaceId, assetId, versions, open, on
 
   return (
     <Dialog open={open} onOpenChange={(next) => !compare.isPending && onOpenChange(next)}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] max-w-2xl flex-col overflow-hidden">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-2xl flex-col overflow-hidden">
         <DialogHeader className="shrink-0 pr-7">
           <DialogTitle className="flex items-center gap-2">
             <GitCompareArrows className="h-5 w-5 text-primary" /> Evolution Intelligence

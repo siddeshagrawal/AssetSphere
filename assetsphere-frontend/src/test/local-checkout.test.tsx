@@ -67,6 +67,8 @@ describe("local checkout", () => {
     renderPage();
     fireEvent.click(screen.getByText("Card"));
     expect(screen.getByText(/deterministic declined card/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Month").parentElement?.parentElement).toHaveClass("grid", "sm:grid-cols-3");
+    expect(screen.getByLabelText("Month").parentElement?.parentElement).not.toHaveClass("grid-cols-3");
     fireEvent.click(screen.getByRole("button", { name: /Pay/ }));
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({
       orderId: "provider-order-1", method: "CARD", pan: "4111111111111111", cvv: "123",

@@ -17,7 +17,7 @@ vi.mock("@/features/workspaces/CreateWorkspaceDialog", () => ({
 
 describe("responsive application shell", () => {
   it("opens and closes the mobile navigation without depending on the desktop sidebar", () => {
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={["/workspaces/workspace-1"]}>
         <Routes>
           <Route path="/workspaces/:workspaceId" element={<AppShell />}>
@@ -26,6 +26,9 @@ describe("responsive application shell", () => {
         </Routes>
       </MemoryRouter>
     );
+
+    expect(container.firstElementChild).toHaveClass("h-[100dvh]");
+    expect(container.firstElementChild).not.toHaveClass("h-screen");
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     expect(screen.getByRole("dialog", { name: "Workspace navigation" })).toBeInTheDocument();

@@ -43,7 +43,7 @@ export function AppShell() {
   }, [mobileOpen]);
 
   return (
-    <div className="flex h-screen min-h-[100dvh] overflow-hidden bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <div className="hidden h-full md:block">
         <Sidebar onCreateWorkspace={() => setCreateOpen(true)} />
       </div>

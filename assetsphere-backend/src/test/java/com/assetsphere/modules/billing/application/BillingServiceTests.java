@@ -216,6 +216,33 @@ class BillingServiceTests {
 
     @Test
     @SuppressWarnings("unchecked")
+    void stripeLifecycleSynchronizationReplacesCheckoutPlaceholderPeriod() {
+        UUID workspaceId = UUID.randomUUID();
+        Instant freeStart = Instant.parse("2026-08-01T00:00:00Z");
+        Instant freeEnd = Instant.parse("2026-09-01T00:00:00Z");
+        Instant checkoutTime = Instant.parse("2026-08-14T12:00:00Z");
+        Instant stripeStart = Instant.parse("2026-08-14T14:49:09Z");
+        Instant stripeEnd = Instant.parse("2026-09-14T14:49:09Z");
+        Subscription subscription = Subscription.free(workspaceId, freeStart, freeEnd);
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        BillingService billing = new BillingService(subscriptions, mock(BillingUsageRepository.class),
+                mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
+                () -> checkoutTime, mock(ObjectProvider.class), mock(ObjectProvider.class));
+
+        billing.activatePro(workspaceId, PaymentProvider.STRIPE, "sub_123");
+        billing.synchronizeStripeSubscription(workspaceId, "sub_123", stripeStart, stripeEnd,
+                false, ProviderSubscriptionStatus.ACTIVE);
+
+        org.assertj.core.api.Assertions.assertThat(subscription.getPlan()).isEqualTo(Plan.PRO);
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodStart()).isEqualTo(stripeStart);
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(stripeEnd);
+        org.assertj.core.api.Assertions.assertThat(subscription.getUsagePeriodStart()).isEqualTo(checkoutTime);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void proActivationChangesPeriodUsageWithoutResettingAssetOrStorageState() {
         UUID workspaceId = UUID.randomUUID();
         Instant now = Instant.parse("2026-08-14T12:00:00Z");

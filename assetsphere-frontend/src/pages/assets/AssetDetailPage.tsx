@@ -85,10 +85,10 @@ export function AssetDetailPage() {
         </section>
 
         <section className="mt-6 rounded-lg border border-border bg-card">
-          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted"><History className="h-4 w-4 text-muted-foreground" /></div>
-            <div className="flex-1"><h2 className="text-sm font-medium">Version history</h2><p className="text-xs text-muted-foreground">Every uploaded revision, newest first</p></div>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col items-stretch gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted"><History className="h-4 w-4 text-muted-foreground" /></div>
+            <div className="min-w-0 flex-1"><h2 className="text-sm font-medium">Version history</h2><p className="text-xs text-muted-foreground">Every uploaded revision, newest first</p></div></div>
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
               {versions.data && versions.data.length >= 2 && <Button variant="outline" size="sm" onClick={() => setCompareOpen(true)}><GitCompareArrows className="h-3.5 w-3.5" /> Compare versions</Button>}
               {versions.data && <span className="text-xs text-muted-foreground">{versions.data.length} version{versions.data.length === 1 ? "" : "s"}</span>}
             </div>
@@ -122,9 +122,9 @@ export function AssetDetailPage() {
         </section>
 
         <section className="mt-6 rounded-lg border border-border bg-card">
-          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted"><Brain className="h-4 w-4 text-muted-foreground" /></div>
-            <div className="flex-1"><h2 className="text-sm font-medium">AI intelligence</h2><p className="text-xs text-muted-foreground">Grounded analysis generated from this asset</p></div><label htmlFor="intelligence-model" className="sr-only">AI model</label><select id="intelligence-model" value={intelligenceModelId} onChange={(event) => setIntelligenceModelId(event.target.value)} className="h-9 max-w-48 rounded-md border border-input bg-background px-3 text-xs"><option value="">Plan default</option>{aiModels.data?.filter((model) => model.capabilities.includes("INTELLIGENCE")).map((model) => <option key={model.modelId} value={model.modelId}>{model.displayName}</option>)}</select>
+          <div className="flex flex-col items-stretch gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted"><Brain className="h-4 w-4 text-muted-foreground" /></div>
+            <div className="min-w-0 flex-1"><h2 className="text-sm font-medium">AI intelligence</h2><p className="text-xs text-muted-foreground">Grounded analysis generated from this asset</p></div></div><label htmlFor="intelligence-model" className="sr-only">AI model</label><select id="intelligence-model" value={intelligenceModelId} onChange={(event) => setIntelligenceModelId(event.target.value)} className="h-11 w-full rounded-md border border-input bg-background px-3 text-xs sm:ml-auto sm:h-9 sm:w-auto sm:max-w-48"><option value="">Plan default</option>{aiModels.data?.filter((model) => model.capabilities.includes("INTELLIGENCE")).map((model) => <option key={model.modelId} value={model.modelId}>{model.displayName}</option>)}</select>
           </div>
           <div className="p-5">
             {selectedStatus === "FAILED" && <IntelligenceMessage title="Processing failed" description="This version could not be processed, so intelligence is unavailable." />}

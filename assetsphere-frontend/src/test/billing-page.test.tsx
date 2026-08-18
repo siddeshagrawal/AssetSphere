@@ -68,24 +68,67 @@ describe("billing subscription display", () => {
   });
 
   it("labels FREE periods as usage resets", () => {
-    mocks.billing = { ...mocks.billing, plan: "FREE", paymentProvider: null };
+    mocks.billing = { ...mocks.billing, plan: "FREE", paymentProvider: null, periodEnd: "2026-09-01T00:00:00Z" };
 
     render(<MemoryRouter initialEntries={["/workspaces/workspace-1/billing"]}><Routes>
       <Route path="/workspaces/:workspaceId/billing" element={<BillingPage />} />
     </Routes></MemoryRouter>);
 
     expect(screen.getByText(/Usage resets/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sep 1, 2026/i)).toBeInTheDocument();
     expect(screen.queryByText(/Renews/i)).not.toBeInTheDocument();
   });
 
-  it("labels active Stripe PRO periods as renewals", () => {
-    mocks.billing = { ...mocks.billing, paymentProvider: "STRIPE", autoRenew: true };
+  it("renders the authoritative Stripe period end for active renewal", () => {
+    mocks.billing = {
+      ...mocks.billing,
+      paymentProvider: "STRIPE",
+      autoRenew: true,
+      periodEnd: "2026-09-18T00:00:00Z",
+    };
 
     render(<MemoryRouter initialEntries={["/workspaces/workspace-1/billing"]}><Routes>
       <Route path="/workspaces/:workspaceId/billing" element={<BillingPage />} />
     </Routes></MemoryRouter>);
 
-    expect(screen.getByText(/Renews/i)).toBeInTheDocument();
+    expect(screen.getByText(/Renews Sep 18, 2026/i)).toBeInTheDocument();
     expect(screen.queryByText(/Usage resets/i)).not.toBeInTheDocument();
+  });
+
+  it("uses the same authoritative period end when cancellation is scheduled", () => {
+    mocks.billing = {
+      ...mocks.billing,
+      paymentProvider: "STRIPE",
+      autoRenew: false,
+      cancelAtPeriodEnd: true,
+      periodEnd: "2026-09-18T00:00:00Z",
+    };
+
+    render(<MemoryRouter initialEntries={["/workspaces/workspace-1/billing"]}><Routes>
+      <Route path="/workspaces/:workspaceId/billing" element={<BillingPage />} />
+    </Routes></MemoryRouter>);
+
+    expect(screen.getByText(/Access remains active until Sep 18, 2026/i)).toBeInTheDocument();
+  });
+
+  it("replaces a stale cached period when refreshed billing data arrives", () => {
+    mocks.billing = {
+      ...mocks.billing,
+      paymentProvider: "STRIPE",
+      autoRenew: true,
+      periodEnd: "2026-09-01T00:00:00Z",
+    };
+    const view = render(<MemoryRouter initialEntries={["/workspaces/workspace-1/billing?checkout=success"]}><Routes>
+      <Route path="/workspaces/:workspaceId/billing" element={<BillingPage />} />
+    </Routes></MemoryRouter>);
+    expect(screen.getByText(/Renews Sep 1, 2026/i)).toBeInTheDocument();
+
+    mocks.billing = { ...mocks.billing, periodEnd: "2026-09-18T00:00:00Z" };
+    view.rerender(<MemoryRouter initialEntries={["/workspaces/workspace-1/billing?checkout=success"]}><Routes>
+      <Route path="/workspaces/:workspaceId/billing" element={<BillingPage />} />
+    </Routes></MemoryRouter>);
+
+    expect(screen.getByText(/Renews Sep 18, 2026/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Renews Sep 1, 2026/i)).not.toBeInTheDocument();
   });
 });

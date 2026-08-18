@@ -4,7 +4,7 @@ import { cancelSubscriptionAtPeriodEnd, createLocalPayment, createProCheckout, g
 import type { LocalPaymentRequest } from "@/types/billing";
 import { createClientRequestId } from "@/lib/utils";
 import { workspaceKeys } from "@/features/workspaces/hooks";
-import { localPaymentPollingInterval } from "@/features/billing/payment-polling";
+import { localPaymentPollingInterval, workspaceBillingPollingInterval } from "@/features/billing/payment-polling";
 
 export const billingKeys = {
   plans: ["billing", "plans"] as const,
@@ -29,7 +29,11 @@ export function useWorkspaceBilling(workspaceId: string | undefined, verifyPayme
     queryKey: billingKeys.workspace(workspaceId ?? ""),
     queryFn: () => getWorkspaceBilling(workspaceId!),
     enabled: Boolean(workspaceId),
-    refetchInterval: (query) => verifyPayment && query.state.data?.latestPaymentStatus === "ORDER_CREATED" ? 3_000 : false,
+    refetchInterval: (query) => workspaceBillingPollingInterval(
+      query.state.data,
+      query.state.dataUpdateCount,
+      verifyPayment,
+    ),
   });
 }
 

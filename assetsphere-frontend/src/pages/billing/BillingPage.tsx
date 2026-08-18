@@ -19,10 +19,11 @@ export function BillingPage() {
     ? session.workspaces.find((workspace) => workspace.id === workspaceId)?.role
     : undefined;
   const isOwner = workspaceRole === "OWNER";
+  const stripeCheckoutOutcome = searchParams.get("checkout");
   const [localOrder, setLocalOrder] = useState<CheckoutResponse | null>(null);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const billing = useWorkspaceBilling(isOwner ? workspaceId : undefined, true);
+  const billing = useWorkspaceBilling(isOwner ? workspaceId : undefined, stripeCheckoutOutcome === "success");
   const capabilities = usePaymentCapabilities();
   const plans = usePlans();
   const checkout = useCreateProCheckout(workspaceId ?? "");
@@ -42,8 +43,6 @@ export function BillingPage() {
 
   const paymentPending = billing.data?.latestPaymentStatus === "CREATED"
     || billing.data?.latestPaymentStatus === "ORDER_CREATED";
-  const stripeCheckoutOutcome = searchParams.get("checkout");
-
   async function startCheckout() {
     setCheckoutError(null);
     setCheckoutMessage(null);

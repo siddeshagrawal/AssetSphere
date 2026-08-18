@@ -15,6 +15,7 @@ import com.assetsphere.modules.billing.persistence.BillingUsageRepository;
 import com.assetsphere.modules.billing.persistence.BillingPaymentRepository;
 import com.assetsphere.modules.billing.persistence.SubscriptionRepository;
 import com.assetsphere.modules.billing.domain.BillingPayment;
+import com.assetsphere.modules.billing.api.PaymentGateway;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentStatus;
 import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
@@ -221,15 +222,20 @@ class BillingServiceTests {
         Instant freeStart = Instant.parse("2026-08-01T00:00:00Z");
         Instant freeEnd = Instant.parse("2026-09-01T00:00:00Z");
         Instant checkoutTime = Instant.parse("2026-08-14T12:00:00Z");
-        Instant stripeStart = Instant.parse("2026-08-14T14:49:09Z");
-        Instant stripeEnd = Instant.parse("2026-09-14T14:49:09Z");
+        Instant stripeStart = Instant.parse("2026-08-18T13:05:02Z");
+        Instant stripeEnd = Instant.parse("2026-09-18T13:05:02Z");
         Subscription subscription = Subscription.free(workspaceId, freeStart, freeEnd);
         SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
         when(subscriptions.findByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
         when(subscriptions.findLockedByWorkspaceId(workspaceId)).thenReturn(Optional.of(subscription));
+        ObjectProvider<PaymentGateway> paymentGateways = mock(ObjectProvider.class);
+        PaymentGateway gateway = mock(PaymentGateway.class);
+        when(paymentGateways.orderedStream()).thenReturn(Stream.of(gateway));
+        when(gateway.provider()).thenReturn(PaymentProvider.STRIPE);
+        when(gateway.supportsCancellation()).thenReturn(true);
         BillingService billing = new BillingService(subscriptions, mock(BillingUsageRepository.class),
                 mock(BillingPaymentRepository.class), new BillingProperties(), new BillingPaymentProperties(),
-                () -> checkoutTime, mock(ObjectProvider.class), mock(ObjectProvider.class));
+                () -> checkoutTime, mock(ObjectProvider.class), paymentGateways);
 
         billing.activatePro(workspaceId, PaymentProvider.STRIPE, "sub_123");
         billing.synchronizeStripeSubscription(workspaceId, "sub_123", stripeStart, stripeEnd,
@@ -239,6 +245,13 @@ class BillingServiceTests {
         org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodStart()).isEqualTo(stripeStart);
         org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(stripeEnd);
         org.assertj.core.api.Assertions.assertThat(subscription.getUsagePeriodStart()).isEqualTo(checkoutTime);
+
+        billing.cancelAtPeriodEnd(workspaceId);
+
+        verify(gateway).cancelAtPeriodEnd("sub_123");
+        org.assertj.core.api.Assertions.assertThat(subscription.isCancelAtPeriodEnd()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodStart()).isEqualTo(stripeStart);
+        org.assertj.core.api.Assertions.assertThat(subscription.getCurrentPeriodEnd()).isEqualTo(stripeEnd);
     }
 
     @Test

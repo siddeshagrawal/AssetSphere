@@ -72,6 +72,9 @@ public class BillingWebhookService {
                     && payment.getCurrency().equalsIgnoreCase(event.currency())) {
                 confirmations.succeeded(event.provider(), event.providerOrderId(), event.providerPaymentId(),
                         event.amountMinor(), event.currency(), event.periodStart(), event.periodEnd());
+                if (event.provider() == PaymentProvider.STRIPE) {
+                    synchronizeConfirmedStripeSubscription(gateway, payment.getWorkspaceId(), event);
+                }
                 processed = true;
             }
         } else if (event.providerPaymentId() != null) {
@@ -110,6 +113,24 @@ public class BillingWebhookService {
             }
         }
         webhookEvents.complete(event.provider(), event.eventId(), processed, clock.now());
+    }
+
+    private void synchronizeConfirmedStripeSubscription(
+            PaymentGateway gateway,
+            java.util.UUID workspaceId,
+            com.assetsphere.modules.billing.api.PaymentWebhookEvent event) {
+        var state = gateway.subscriptionState(event.providerPaymentId()).orElseThrow(() ->
+                new ServiceUnavailableException("Stripe subscription state is not available yet", null));
+        if (!event.providerPaymentId().equals(state.externalSubscriptionId())) {
+            throw new com.assetsphere.modules.common.exception.ConflictException(
+                    "Stripe subscription relationship is inconsistent");
+        }
+        if (!providerEvents.accept(PaymentProvider.STRIPE, "SUBSCRIPTION:" + state.externalSubscriptionId(),
+                event.occurredAt(), 345, event.eventId())) {
+            return;
+        }
+        billing.synchronizeStripeSubscription(workspaceId, state.externalSubscriptionId(),
+                state.periodStart(), state.periodEnd(), state.cancelAtPeriodEnd(), state.status());
     }
 
     private boolean requiresStripeSubscriptionIdentity(com.assetsphere.modules.billing.api.PaymentWebhookEvent event) {

@@ -6,6 +6,7 @@ import com.assetsphere.modules.billing.api.PaymentGateway;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentWebhookEvent;
 import com.assetsphere.modules.billing.api.PaymentWebhookStatus;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionState;
 import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.common.exception.InvalidRequestException;
 import com.assetsphere.modules.common.exception.ServiceUnavailableException;
@@ -16,6 +17,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Optional;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -70,6 +72,34 @@ class StripePaymentGateway implements PaymentGateway {
             throw exception;
         } catch (RestClientException | IllegalStateException exception) {
             throw new ServiceUnavailableException("Stripe cancellation is temporarily unavailable", exception);
+        }
+    }
+
+    @Override
+    public Optional<ProviderSubscriptionState> subscriptionState(String externalSubscriptionId) {
+        properties.requireCheckout();
+        if (!StringUtils.hasText(externalSubscriptionId) || !externalSubscriptionId.startsWith("sub_")) {
+            throw new ServiceUnavailableException("Stripe subscription identity is invalid", null);
+        }
+        try {
+            JsonNode response = client.get().uri("/v1/subscriptions/{id}", externalSubscriptionId)
+                    .headers(headers -> headers.setBearerAuth(properties.getSecretKey()))
+                    .retrieve().body(JsonNode.class);
+            if (response == null || !externalSubscriptionId.equals(text(response, "id"))) {
+                throw new ServiceUnavailableException("Stripe returned an inconsistent subscription", null);
+            }
+            SubscriptionPeriod period = subscriptionPeriod("customer.subscription.updated", response);
+            ProviderSubscriptionStatus status = stripeSubscriptionStatus("customer.subscription.updated", response);
+            if (!period.valid() || status == null || status == ProviderSubscriptionStatus.UNKNOWN) {
+                throw new ServiceUnavailableException("Stripe subscription state is incomplete", null);
+            }
+            return Optional.of(new ProviderSubscriptionState(externalSubscriptionId, period.start(), period.end(),
+                    response.path("cancel_at_period_end").asBoolean(false), status));
+        } catch (ServiceUnavailableException exception) {
+            throw exception;
+        } catch (RestClientException | IllegalStateException exception) {
+            throw new ServiceUnavailableException("Stripe subscription synchronization is temporarily unavailable",
+                    exception);
         }
     }
 

@@ -10,6 +10,7 @@ import com.assetsphere.modules.billing.api.PaymentProvider;
 import com.assetsphere.modules.billing.api.PaymentWebhookEvent;
 import com.assetsphere.modules.billing.api.PaymentWebhookStatus;
 import com.assetsphere.modules.billing.api.Plan;
+import com.assetsphere.modules.billing.api.ProviderSubscriptionState;
 import com.assetsphere.modules.billing.api.ProviderSubscriptionStatus;
 import com.assetsphere.modules.billing.domain.BillingPayment;
 import com.assetsphere.modules.billing.persistence.BillingPaymentRepository;
@@ -52,7 +53,7 @@ class BillingWebhookServiceTests {
     }
 
     @Test
-    void checkoutConfirmationDoesNotAssumeSubscriptionPeriodFields() {
+    void checkoutConfirmationAutomaticallySynchronizesAuthoritativeSubscriptionPeriod() {
         BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
                 PaymentProvider.STRIPE, "key", "receipt", 99_900, "INR");
         payment.orderCreated("checkout_123", null);
@@ -64,11 +65,74 @@ class BillingWebhookServiceTests {
                 fixture.payloadHash, NOW)).thenReturn(true);
         when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.STRIPE, "checkout_123"))
                 .thenReturn(Optional.of(payment));
+        Instant providerStart = Instant.parse("2026-08-18T13:05:02Z");
+        Instant providerEnd = Instant.parse("2026-09-18T13:05:02Z");
+        when(fixture.gateway.subscriptionState("sub_123")).thenReturn(Optional.of(
+                new ProviderSubscriptionState("sub_123", providerStart, providerEnd, false,
+                        ProviderSubscriptionStatus.ACTIVE)));
 
         fixture.service.handle(PaymentProvider.STRIPE, "event_123", "{}", "signature");
 
         verify(fixture.confirmations).succeeded(PaymentProvider.STRIPE, "checkout_123", "sub_123",
                 99_900, "INR", null, null);
+        verify(fixture.providerEvents).accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                NOW, 345, "event_123");
+        verify(fixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
+                providerStart, providerEnd, false, ProviderSubscriptionStatus.ACTIVE);
+    }
+
+    @Test
+    void checkoutConfirmationWithoutRetrievableSubscriptionStateRollsBackForProviderRetry() {
+        BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
+                PaymentProvider.STRIPE, "key", "receipt", 99_900, "INR");
+        payment.orderCreated("checkout_123", null);
+        PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_123",
+                "checkout.session.completed", "checkout_123", "sub_123", 99_900, "INR",
+                PaymentWebhookStatus.SUCCEEDED, NOW, true);
+        Fixture fixture = fixture(event);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, event.eventId(), event.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.STRIPE, "checkout_123"))
+                .thenReturn(Optional.of(payment));
+        when(fixture.gateway.subscriptionState("sub_123")).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                fixture.service.handle(PaymentProvider.STRIPE, event.eventId(), "{}", "signature"))
+                .isInstanceOf(com.assetsphere.modules.common.exception.ServiceUnavailableException.class);
+
+        verify(fixture.webhookEvents, never()).complete(PaymentProvider.STRIPE, event.eventId(), true, NOW);
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void checkoutReconciliationCannotOverwriteNewerSubscriptionLifecycleState() {
+        BillingPayment payment = BillingPayment.create(UUID.randomUUID(), UUID.randomUUID(), Plan.PRO,
+                PaymentProvider.STRIPE, "key", "receipt", 99_900, "INR");
+        payment.orderCreated("checkout_123", null);
+        PaymentWebhookEvent event = new PaymentWebhookEvent(PaymentProvider.STRIPE, "event_123",
+                "checkout.session.completed", "checkout_123", "sub_123", 99_900, "INR",
+                PaymentWebhookStatus.SUCCEEDED, NOW, true);
+        Fixture fixture = fixture(event);
+        when(fixture.webhookEvents.claim(PaymentProvider.STRIPE, event.eventId(), event.eventType(),
+                fixture.payloadHash, NOW)).thenReturn(true);
+        when(fixture.payments.findLockedByProviderAndProviderOrderId(PaymentProvider.STRIPE, "checkout_123"))
+                .thenReturn(Optional.of(payment));
+        when(fixture.gateway.subscriptionState("sub_123")).thenReturn(Optional.of(
+                new ProviderSubscriptionState("sub_123", PERIOD_START, PERIOD_END, false,
+                        ProviderSubscriptionStatus.ACTIVE)));
+        when(fixture.providerEvents.accept(PaymentProvider.STRIPE, "SUBSCRIPTION:sub_123",
+                NOW, 345, event.eventId())).thenReturn(false);
+
+        fixture.service.handle(PaymentProvider.STRIPE, event.eventId(), "{}", "signature");
+
+        verify(fixture.billing, never()).synchronizeStripeSubscription(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.webhookEvents).complete(PaymentProvider.STRIPE, event.eventId(), true, NOW);
     }
 
     @Test
@@ -364,7 +428,7 @@ class BillingWebhookServiceTests {
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
         BillingWebhookService service = new BillingWebhookService(gateways, payments, webhookEvents, providerEvents,
                 billing, confirmations, (ClockProvider) () -> NOW);
-        return new Fixture(service, payments, webhookEvents, providerEvents, billing, confirmations,
+        return new Fixture(service, gateway, payments, webhookEvents, providerEvents, billing, confirmations,
                 "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a");
     }
 
@@ -376,7 +440,7 @@ class BillingWebhookServiceTests {
         return payment;
     }
 
-    private record Fixture(BillingWebhookService service, BillingPaymentRepository payments,
+    private record Fixture(BillingWebhookService service, PaymentGateway gateway, BillingPaymentRepository payments,
                            BillingWebhookRepository webhookEvents, BillingProviderEventRepository providerEvents,
                            BillingService billing,
                            ProviderPaymentConfirmationService confirmations, String payloadHash) { }

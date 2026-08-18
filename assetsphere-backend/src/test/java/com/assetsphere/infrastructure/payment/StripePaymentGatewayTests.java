@@ -42,6 +42,29 @@ class StripePaymentGatewayTests {
         server.verify();
     }
     @Test
+    void retrievesModernAuthoritativeSubscriptionState() {
+        StripeProperties properties = checkoutProperties();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://api.stripe.com/v1/subscriptions/sub_123"))
+                .andRespond(withSuccess("""
+                        {"id":"sub_123","status":"active","cancel_at_period_end":false,
+                         "items":{"data":[{"id":"si_123","current_period_start":1787058302,
+                         "current_period_end":1789736702}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        var state = new StripePaymentGateway(properties, new ObjectMapper(), builder, "https://app.example.com")
+                .subscriptionState("sub_123").orElseThrow();
+
+        assertThat(state.externalSubscriptionId()).isEqualTo("sub_123");
+        assertThat(state.periodStart()).isEqualTo(Instant.ofEpochSecond(1787058302));
+        assertThat(state.periodEnd()).isEqualTo(Instant.ofEpochSecond(1789736702));
+        assertThat(state.status()).isEqualTo(ProviderSubscriptionStatus.ACTIVE);
+        assertThat(state.cancelAtPeriodEnd()).isFalse();
+        server.verify();
+    }
+
+    @Test
     void verifiesSignedCheckoutCompletionAndRejectsTampering() throws Exception {
         StripeProperties properties = new StripeProperties();
         properties.setWebhookSecret("whsec_test");

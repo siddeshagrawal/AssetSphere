@@ -43,7 +43,7 @@ export function AssetDetailPage() {
   if (!asset.data) return null;
 
   return (
-    <div className="p-6">
+    <div className="min-w-0 p-4 sm:p-6">
       <div className="mx-auto max-w-4xl">
         <Link to={`/workspaces/${workspaceId}/assets`} className="mb-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back to assets
@@ -84,7 +84,7 @@ export function AssetDetailPage() {
           </dl>
         </section>
 
-        <section className="mt-6 rounded-lg border border-border bg-card">
+        <section className="mt-6 min-w-0 rounded-lg border border-border bg-card">
           <div className="flex flex-col items-stretch gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center">
             <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted"><History className="h-4 w-4 text-muted-foreground" /></div>
             <div className="min-w-0 flex-1"><h2 className="text-sm font-medium">Version history</h2><p className="text-xs text-muted-foreground">Every uploaded revision, newest first</p></div></div>
@@ -126,7 +126,7 @@ export function AssetDetailPage() {
             <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted"><Brain className="h-4 w-4 text-muted-foreground" /></div>
             <div className="min-w-0 flex-1"><h2 className="text-sm font-medium">AI intelligence</h2><p className="text-xs text-muted-foreground">Grounded analysis generated from this asset</p></div></div><label htmlFor="intelligence-model" className="sr-only">AI model</label><select id="intelligence-model" value={intelligenceModelId} onChange={(event) => setIntelligenceModelId(event.target.value)} className="h-11 w-full rounded-md border border-input bg-background px-3 text-xs sm:ml-auto sm:h-9 sm:w-auto sm:max-w-48"><option value="">Plan default</option>{aiModels.data?.filter((model) => model.capabilities.includes("INTELLIGENCE")).map((model) => <option key={model.modelId} value={model.modelId}>{model.displayName}</option>)}</select>
           </div>
-          <div className="p-5">
+          <div className="min-w-0 p-4 sm:p-5">
             {selectedStatus === "FAILED" && <IntelligenceMessage title="Processing failed" description="This version could not be processed, so intelligence is unavailable." />}
             {(selectedStatus === "UPLOADED" || selectedStatus === "QUEUED" || selectedStatus === "PROCESSING") && <IntelligenceMessage title="Intelligence pending" description="Intelligence will become available after this version finishes processing." />}
             {canHaveIntelligence && intelligence.isLoading && <div className="space-y-3"><Skeleton className="h-4 w-32" /><Skeleton className="h-20 w-full" /><Skeleton className="h-4 w-2/3" /></div>}
@@ -148,7 +148,7 @@ export function AssetDetailPage() {
   );
 }
 
-function IntelligenceContent({ intelligence, generating, onGenerate }: { intelligence: AssetIntelligenceResponse; generating: boolean; onGenerate: () => void }) {
+export function IntelligenceContent({ intelligence, generating, onGenerate }: { intelligence: AssetIntelligenceResponse; generating: boolean; onGenerate: () => void }) {
   if (intelligence.status === "NOT_GENERATED") {
     return <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10"><Sparkles className="h-5 w-5 text-primary" /></div><h3 className="mt-4 text-sm font-semibold">AI insights haven&apos;t been generated yet.</h3><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">Generate a grounded summary, key points, and tags for this version when you need them.</p><div className="mt-3 flex justify-center gap-2 text-xs text-muted-foreground"><span>Summary</span><span>·</span><span>Key points</span><span>·</span><span>Tags</span></div><Button className="mt-5" onClick={onGenerate} disabled={generating}>{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{generating ? "Starting…" : "Generate AI Insights"}</Button></div>;
   }
@@ -159,10 +159,10 @@ function IntelligenceContent({ intelligence, generating, onGenerate }: { intelli
   if (intelligence.status === "NOT_APPLICABLE") return <IntelligenceMessage title="Intelligence not applicable" description="AI analysis is not available for this asset type." />;
   if (intelligence.status === "DISABLED") return <IntelligenceMessage title="Intelligence disabled" description="AI analysis is not enabled for this workspace." />;
   return (
-    <div className="space-y-6">
-      <div><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Summary</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{intelligence.summary || "No summary was generated."}</p></div>
-      {intelligence.keyPoints.length > 0 && <div><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Key points</h3><ul className="mt-2 space-y-2">{intelligence.keyPoints.map((point, index) => <li key={index} className="flex gap-2 text-sm leading-6"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />{point}</li>)}</ul></div>}
-      {intelligence.tags.length > 0 && <div><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</h3><div className="mt-2 flex flex-wrap gap-2">{intelligence.tags.map((tag) => <span key={tag} className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{tag}</span>)}</div></div>}
+    <div className="min-w-0 space-y-6 overflow-visible">
+      <div className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Summary</h3><p className="mt-2 min-w-0 max-w-full whitespace-pre-wrap break-words text-sm leading-6 text-foreground [overflow-wrap:anywhere]">{intelligence.summary || "No summary was generated."}</p></div>
+      {intelligence.keyPoints.length > 0 && <div className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Key points</h3><ul className="mt-2 min-w-0 space-y-2">{intelligence.keyPoints.map((point, index) => <li key={index} className="flex min-w-0 gap-2 text-sm leading-6"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" /><span className="min-w-0 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{point}</span></li>)}</ul></div>}
+      {intelligence.tags.length > 0 && <div className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</h3><div className="mt-2 flex min-w-0 flex-wrap gap-2">{intelligence.tags.map((tag) => <span key={tag} className="max-w-full break-words rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">{tag}</span>)}</div></div>}
     </div>
   );
 }

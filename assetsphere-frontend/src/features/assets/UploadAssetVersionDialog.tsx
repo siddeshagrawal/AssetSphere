@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { FileDropzone } from "@/features/assets/FileDropzone";
+import { FileDropzone, mediaUploadEntitlementError } from "@/features/assets/FileDropzone";
+import { useWorkspaceBilling } from "@/features/billing/hooks";
 import { useUploadAssetVersion } from "@/features/assets/hooks";
 import { ApiError } from "@/types/api";
 import { createClientRequestId } from "@/lib/utils";
@@ -33,6 +34,7 @@ export function UploadAssetVersionDialog({
   onUploaded,
 }: UploadAssetVersionDialogProps) {
   const upload = useUploadAssetVersion(workspaceId, assetId);
+  const billing = useWorkspaceBilling(workspaceId);
   const idempotencyKey = useRef(createClientRequestId());
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
@@ -55,6 +57,11 @@ export function UploadAssetVersionDialog({
     event.preventDefault();
     if (!file) {
       setValidationError("Choose a file to upload.");
+      return;
+    }
+    const entitlementError = mediaUploadEntitlementError(file, billing.data?.entitlements);
+    if (entitlementError) {
+      setValidationError(entitlementError);
       return;
     }
     try {
@@ -101,6 +108,7 @@ export function UploadAssetVersionDialog({
               disabled={upload.isPending}
               onFileChange={changeFile}
               onValidationError={setValidationError}
+              mediaEntitlements={billing.data?.entitlements}
             />
           </div>
           {upload.isPending && (

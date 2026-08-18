@@ -27,6 +27,7 @@ public class AssetUploadService {
     private final WorkspaceAccessFacade workspaceAccessFacade;
     private final AssetUploadRateLimiter assetUploadRateLimiter;
     private final AssetFileValidator assetFileValidator;
+    private final AssetUploadCapabilityPolicy assetUploadCapabilityPolicy;
     private final AssetChecksum assetChecksum;
     private final UploadFingerprint uploadFingerprint;
     private final AssetIdempotencyService assetIdempotencyService;
@@ -41,6 +42,7 @@ public class AssetUploadService {
         workspaceAccessFacade.requireActiveMembership(workspaceId, currentUser.id());
         assetUploadRateLimiter.check(workspaceId, currentUser.id());
         AssetFileValidator.ValidatedFile validatedFile = assetFileValidator.validate(file);
+        assetUploadCapabilityPolicy.requireSupported(workspaceId, validatedFile.mimeType());
         String normalizedDisplayName = normalizeDisplayName(displayName, validatedFile.filename());
         String normalizedDescription = normalizeDescription(description);
         String fileChecksum = calculateChecksum(file);
@@ -107,6 +109,7 @@ public class AssetUploadService {
             throw new ResourceNotFoundException("Asset not found");
         }
         AssetFileValidator.ValidatedFile validatedFile = assetFileValidator.validate(file);
+        assetUploadCapabilityPolicy.requireSupported(workspaceId, validatedFile.mimeType());
         String fileChecksum = calculateChecksum(file);
         String requestFingerprint = uploadFingerprint.createVersion(
                 currentUser.id(), workspaceId, assetId, validatedFile.filename(), validatedFile.mimeType(),

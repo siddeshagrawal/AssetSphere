@@ -12,7 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUploadAsset } from "@/features/assets/hooks";
-import { FileDropzone } from "@/features/assets/FileDropzone";
+import { FileDropzone, mediaUploadEntitlementError } from "@/features/assets/FileDropzone";
+import { useWorkspaceBilling } from "@/features/billing/hooks";
 import { ApiError } from "@/types/api";
 
 interface UploadAssetDialogProps {
@@ -23,6 +24,7 @@ interface UploadAssetDialogProps {
 
 export function UploadAssetDialog({ workspaceId, open, onOpenChange }: UploadAssetDialogProps) {
   const upload = useUploadAsset(workspaceId);
+  const billing = useWorkspaceBilling(workspaceId);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
@@ -46,6 +48,11 @@ export function UploadAssetDialog({ workspaceId, open, onOpenChange }: UploadAss
     }
     if (file.size > 25 * 1_024 * 1_024) {
       setValidationError("File size must not exceed 25 MB.");
+      return;
+    }
+    const entitlementError = mediaUploadEntitlementError(file, billing.data?.entitlements);
+    if (entitlementError) {
+      setValidationError(entitlementError);
       return;
     }
     setValidationError(null);
@@ -89,6 +96,7 @@ export function UploadAssetDialog({ workspaceId, open, onOpenChange }: UploadAss
               disabled={upload.isPending}
               onFileChange={setFile}
               onValidationError={setValidationError}
+              mediaEntitlements={billing.data?.entitlements}
             />
           </div>
           <div className="space-y-2">

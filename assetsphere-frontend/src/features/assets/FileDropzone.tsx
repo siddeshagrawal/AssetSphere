@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { FileText, UploadCloud, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
+import type { PlanEntitlements } from "@/types/billing";
 
 const ACCEPTED_MIME_TYPES = new Set([
   "application/pdf",
@@ -34,6 +35,26 @@ interface FileDropzoneProps {
   disabled?: boolean;
   onFileChange: (file: File | null) => void;
   onValidationError: (message: string | null) => void;
+  mediaEntitlements?: Pick<PlanEntitlements, "ocrEnabled" | "videoTranscriptionEnabled">;
+}
+
+export function mediaUploadEntitlementError(
+  file: File,
+  entitlements?: Pick<PlanEntitlements, "ocrEnabled" | "videoTranscriptionEnabled">
+): string | null {
+  if (!entitlements) return null;
+  const filename = file.name.toLowerCase();
+  const video = file.type === "video/mp4" || file.type === "video/webm"
+    || filename.endsWith(".mp4") || filename.endsWith(".webm");
+  if (video && !entitlements.videoTranscriptionEnabled) {
+    return "Video transcription requires a PRO or ENTERPRISE plan. Upgrade this workspace to upload video.";
+  }
+  const image = file.type.startsWith("image/")
+    || [".png", ".jpg", ".jpeg", ".webp"].some((extension) => filename.endsWith(extension));
+  if (image && !entitlements.ocrEnabled) {
+    return "Image OCR requires a PRO or ENTERPRISE plan. Upgrade this workspace to upload images.";
+  }
+  return null;
 }
 
 export function FileDropzone({
@@ -42,6 +63,7 @@ export function FileDropzone({
   disabled = false,
   onFileChange,
   onValidationError,
+  mediaEntitlements,
 }: FileDropzoneProps) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -60,6 +82,11 @@ export function FileDropzone({
     }
     if (candidate.size > MAX_FILE_SIZE) {
       onValidationError("File size must not exceed 25 MB.");
+      return;
+    }
+    const entitlementError = mediaUploadEntitlementError(candidate, mediaEntitlements);
+    if (entitlementError) {
+      onValidationError(entitlementError);
       return;
     }
     onFileChange(candidate);

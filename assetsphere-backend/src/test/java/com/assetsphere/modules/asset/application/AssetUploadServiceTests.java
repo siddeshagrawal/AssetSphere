@@ -1,6 +1,7 @@
 package com.assetsphere.modules.asset.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -16,6 +17,7 @@ import com.assetsphere.modules.asset.domain.AssetType;
 import com.assetsphere.modules.asset.persistence.AssetRepository;
 import com.assetsphere.modules.common.security.CurrentUser;
 import com.assetsphere.modules.common.security.CurrentUserProvider;
+import com.assetsphere.modules.common.exception.BusinessRuleViolationException;
 import com.assetsphere.modules.storage.api.StorageFacade;
 import com.assetsphere.modules.workspace.api.WorkspaceAccessFacade;
 import com.assetsphere.modules.billing.api.BillingEntitlementFacade;
@@ -35,6 +37,7 @@ class AssetUploadServiceTests {
     @Mock private WorkspaceAccessFacade workspaceAccess;
     @Mock private AssetUploadRateLimiter rateLimiter;
     @Mock private AssetFileValidator fileValidator;
+    @Mock private AssetUploadCapabilityPolicy capabilityPolicy;
     @Mock private AssetChecksum checksum;
     @Mock private UploadFingerprint fingerprint;
     @Mock private AssetIdempotencyService idempotencyService;
@@ -120,8 +123,58 @@ class AssetUploadServiceTests {
         verify(uploadTransaction, never()).persistVersion(any());
     }
 
+    @Test
+    void freeVideoIsRejectedBeforeChecksumIdempotencyStorageOrPersistence() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID workspaceId = UUID.randomUUID();
+        MockMultipartFile video = new MockMultipartFile(
+                "file", "demo.mp4", "video/mp4", new byte[] {1});
+        when(currentUserProvider.requireCurrentUser()).thenReturn(new CurrentUser(userId, "user@example.com"));
+        when(fileValidator.validate(video)).thenReturn(
+                new AssetFileValidator.ValidatedFile("demo.mp4", "video/mp4", 1, AssetType.OTHER));
+        org.mockito.Mockito.doThrow(new BusinessRuleViolationException(
+                "Video transcription requires a PRO or ENTERPRISE workspace plan"))
+                .when(capabilityPolicy).requireSupported(workspaceId, "video/mp4");
+
+        assertThatThrownBy(() -> service().upload(workspaceId, "key", video, null, null))
+                .isInstanceOf(BusinessRuleViolationException.class)
+                .hasMessage("Video transcription requires a PRO or ENTERPRISE workspace plan");
+
+        verify(checksum, never()).sha256(any());
+        verify(idempotencyService, never()).reserve(any(), any(), any(), any());
+        verify(storageFacade, never()).prepare(any());
+        verify(uploadTransaction, never()).persist(any());
+        verify(billing, never()).requireAssetUpload(any(), anyLong());
+    }
+
+    @Test
+    void freeVideoVersionIsRejectedBeforeChecksumIdempotencyStorageOrPersistence() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID workspaceId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        MockMultipartFile video = new MockMultipartFile(
+                "file", "demo.webm", "video/webm", new byte[] {1});
+        when(currentUserProvider.requireCurrentUser()).thenReturn(new CurrentUser(userId, "user@example.com"));
+        when(assetRepository.existsByIdAndWorkspaceId(assetId, workspaceId)).thenReturn(true);
+        when(fileValidator.validate(video)).thenReturn(
+                new AssetFileValidator.ValidatedFile("demo.webm", "video/webm", 1, AssetType.OTHER));
+        org.mockito.Mockito.doThrow(new BusinessRuleViolationException(
+                "Video transcription requires a PRO or ENTERPRISE workspace plan"))
+                .when(capabilityPolicy).requireSupported(workspaceId, "video/webm");
+
+        assertThatThrownBy(() -> service().uploadVersion(workspaceId, assetId, "key", video))
+                .isInstanceOf(BusinessRuleViolationException.class);
+
+        verify(checksum, never()).sha256(any());
+        verify(idempotencyService, never()).reserveVersion(any(), any(), any(), any());
+        verify(storageFacade, never()).prepare(any());
+        verify(uploadTransaction, never()).persistVersion(any());
+        verify(billing, never()).requireStorage(any(), anyLong());
+    }
+
     private AssetUploadService service() {
-        return new AssetUploadService(currentUserProvider, workspaceAccess, rateLimiter, fileValidator, checksum, fingerprint,
+        return new AssetUploadService(currentUserProvider, workspaceAccess, rateLimiter, fileValidator, capabilityPolicy,
+                checksum, fingerprint,
                 idempotencyService, storageFacade, uploadTransaction, assetRepository, billing);
     }
 

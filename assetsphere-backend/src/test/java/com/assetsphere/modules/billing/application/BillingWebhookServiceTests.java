@@ -79,6 +79,7 @@ class BillingWebhookServiceTests {
                 NOW, 345, "event_123");
         verify(fixture.billing).synchronizeStripeSubscription(payment.getWorkspaceId(), "sub_123",
                 providerStart, providerEnd, false, ProviderSubscriptionStatus.ACTIVE);
+        verify(fixture.providerEvents).markReconciled(PaymentProvider.STRIPE, "sub_123", "event_123");
     }
 
     @Test

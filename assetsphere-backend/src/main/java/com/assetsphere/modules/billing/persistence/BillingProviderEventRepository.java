@@ -3,6 +3,7 @@ package com.assetsphere.modules.billing.persistence;
 import com.assetsphere.modules.billing.api.PaymentProvider;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -10,7 +11,29 @@ import org.springframework.stereotype.Repository;
 @Repository
 @RequiredArgsConstructor
 public class BillingProviderEventRepository {
+    private static final String RECONCILIATION_IDENTITY_PREFIX = "RECONCILIATION:";
+    private static final Instant RECONCILIATION_TIME = Instant.EPOCH;
+    private static final int RECONCILIATION_PRIORITY = 0;
     private final JdbcTemplate jdbc;
+
+    public Optional<Integer> priority(PaymentProvider provider, String identity) {
+        return jdbc.query("""
+                SELECT event_priority
+                  FROM billing_provider_event_state
+                 WHERE provider = ?
+                   AND provider_identity = ?
+                """, (resultSet, rowNumber) -> resultSet.getInt("event_priority"),
+                provider.name(), identity).stream().findFirst();
+    }
+
+    public boolean reconciled(PaymentProvider provider, String externalSubscriptionId) {
+        return priority(provider, RECONCILIATION_IDENTITY_PREFIX + externalSubscriptionId).isPresent();
+    }
+
+    public boolean markReconciled(PaymentProvider provider, String externalSubscriptionId, String eventId) {
+        return accept(provider, RECONCILIATION_IDENTITY_PREFIX + externalSubscriptionId,
+                RECONCILIATION_TIME, RECONCILIATION_PRIORITY, eventId);
+    }
 
     public boolean accept(PaymentProvider provider, String identity, Instant occurredAt,
                           int priority, String eventId) {

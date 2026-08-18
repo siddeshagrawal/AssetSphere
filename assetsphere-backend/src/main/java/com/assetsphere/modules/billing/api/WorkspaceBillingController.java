@@ -7,6 +7,7 @@ import com.assetsphere.modules.billing.api.dto.response.CheckoutResponse;
 import com.assetsphere.modules.billing.api.dto.request.LocalPaymentRequest;
 import com.assetsphere.modules.billing.api.dto.response.LocalPaymentResponse;
 import com.assetsphere.modules.billing.application.LocalPaymentDemoService;
+import com.assetsphere.modules.billing.application.StripeSubscriptionReconciliationService;
 import com.assetsphere.modules.common.security.CurrentUserProvider;
 import com.assetsphere.modules.common.time.ClockProvider;
 import com.assetsphere.modules.common.web.ApiResponse;
@@ -35,6 +36,7 @@ class WorkspaceBillingController {
     private final BillingService billing;
     private final BillingCheckoutService checkout;
     private final LocalPaymentDemoService localPayments;
+    private final StripeSubscriptionReconciliationService stripeReconciliation;
     private final WorkspaceAccessFacade workspaceAccess;
     private final CurrentUserProvider currentUser;
     private final ClockProvider clock;
@@ -43,6 +45,7 @@ class WorkspaceBillingController {
     @Operation(summary = "Get workspace plan, entitlements, and usage")
     ApiResponse<BillingResponse> get(@PathVariable UUID workspaceId) {
         workspaceAccess.requireActiveMembership(workspaceId, currentUser.requireCurrentUser().id());
+        stripeReconciliation.reconcileLegacyIfNeeded(workspaceId);
         return ApiResponse.success(billing.billing(workspaceId), clock);
     }
 

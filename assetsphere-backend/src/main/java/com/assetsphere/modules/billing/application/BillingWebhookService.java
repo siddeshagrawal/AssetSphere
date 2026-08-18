@@ -88,6 +88,10 @@ public class BillingWebhookService {
                                 event.subscriptionStatus());
                         processed = event.subscriptionStatus()
                                 != com.assetsphere.modules.billing.api.ProviderSubscriptionStatus.UNKNOWN;
+                        if (processed && validPeriod(event.periodStart(), event.periodEnd())) {
+                            providerEvents.markReconciled(PaymentProvider.STRIPE,
+                                    event.providerPaymentId(), event.eventId());
+                        }
                     }
                 } else if (event.status() == PaymentWebhookStatus.SUCCEEDED) {
                     if (event.eventType().startsWith("invoice.")
@@ -131,6 +135,7 @@ public class BillingWebhookService {
         }
         billing.synchronizeStripeSubscription(workspaceId, state.externalSubscriptionId(),
                 state.periodStart(), state.periodEnd(), state.cancelAtPeriodEnd(), state.status());
+        providerEvents.markReconciled(PaymentProvider.STRIPE, state.externalSubscriptionId(), event.eventId());
     }
 
     private boolean requiresStripeSubscriptionIdentity(com.assetsphere.modules.billing.api.PaymentWebhookEvent event) {
@@ -182,6 +187,10 @@ public class BillingWebhookService {
         return event.provider() == PaymentProvider.STRIPE
                 && ("customer.subscription.created".equals(event.eventType())
                 || "customer.subscription.updated".equals(event.eventType()));
+    }
+
+    private boolean validPeriod(java.time.Instant start, java.time.Instant end) {
+        return start != null && end != null && end.isAfter(start);
     }
 
     private String sha256(String payload) {

@@ -2,6 +2,11 @@
 
 This reference maps AssetSphere's principal engineering concepts to concrete implementation paths, failure boundaries, runtime behavior, and focused tests. It complements the narrative [architecture guide](ARCHITECTURE.md) with a source-oriented index.
 
+## Hackathon Result
+
+- **Result:** 4th Place
+- **Demo video:** [Watch the AssetSphere demo](https://youtu.be/Is7codPpdZw)
+
 ## Implementation Map
 
 | Concept | AssetSphere approach | Representative classes/config | Failure handling or validation |
@@ -19,7 +24,7 @@ This reference maps AssetSphere's principal engineering concepts to concrete imp
 | Rate limiting | Redis upload, semantic-search, and RAG limiters use workspace/user scopes | `RedisAssetUploadRateLimiter.java`, `RedisSemanticSearchRateLimiter.java`, `RedisRagRateLimiter.java` | Application wiring/tests in verified suite; no broader generic limiter claim |
 | Distributed locking | Token-owned Redis locks coordinate processing, intelligence, and semantic indexing per asset version | `RedisAssetProcessingLock.java`, `RedisIntelligenceProcessingLock.java`, `RedisSemanticIndexingLock.java` | Listener/application tests cover lock use |
 | Kafka | Outbox-published events drive extraction, semantic indexing, and intelligence separately from HTTP upload | `OutboxPublisher.java`, `KafkaOutboxMessagePublisher.java`, `AssetUploadedKafkaListener.java`, intelligence/semantic listeners | Multimodal processing and indexing verified in production |
-| PostgreSQL database | Authoritative tenant, asset/version, search, billing, outbox, and audit state with JPA/JDBC and Flyway V1-V17 | `src/main/resources/db/migration/`, module persistence packages | PostgreSQL billing integration tests separately verified |
+| PostgreSQL database | Authoritative tenant, asset/version, search, billing, outbox, and audit state with JPA/JDBC and Flyway V1-V18 | `src/main/resources/db/migration/`, module persistence packages | PostgreSQL billing integration tests separately verified |
 | pgvector | 1536-dimensional embeddings and `<=>` retrieval remain in PostgreSQL | `SemanticIndexingApplicationService.java`, `AssetContentChunkVectorRepository.java`, `AssetSearchDocumentRepository.java` | Semantic indexing and semantic/hybrid retrieval verified in production |
 | Storage consistency | Workspace-scoped checksum dedup, temporary/canonical keys, atomic reference upsert, and compensation | `StorageApplicationService.java`, `AssetUploadService.java`, `AssetUploadTransaction.java` | `StorageApplicationServiceTests.java`, PostgreSQL storage integration test |
 | Version concurrency | Explicit append-version locks the logical asset before incrementing `latestVersionNumber` | `AssetRepository.findForUpdate(...)`, `Asset.appendVersion(...)`, `AssetUploadTransaction.persistVersion(...)` | `AssetUploadTransactionVersionTests.java`; versioning verified in production |
@@ -110,6 +115,90 @@ This reference maps AssetSphere's principal engineering concepts to concrete imp
 | Actuator health | Open public health link | `GET /actuator/health`; readiness/liveness paths for operations | Current health status | Spring Boot Actuator |
 | Swagger/OpenAPI | Open public Swagger | Execute the README Swagger workflow | Discoverable v1 contract with bearer scheme | Springdoc and `OpenApiConfiguration` |
 | Production deployment | Use the public Vercel app | Public Railway API/Swagger/health | Working HTTPS system across managed dependencies | Vercel, Railway, managed PG/Redis/Kafka/storage |
+
+## Beyond the Short Demo: Evidence Groups
+
+| Group | Implemented evidence | Why it matters | Strong verification point |
+|---|---|---|---|
+| Product intelligence | Exact-version summaries/key points/tags, grounded workspace insights, Knowledge Checks, and two-version Evolution | AI results are tied to selected tenant data and explicit versions rather than a generic chat surface | `modules/intelligence/application/`, intelligence API controllers, asset detail and Insights pages |
+| Multimodal ingestion | Bounded extractors for PDF/DOCX/TXT/MD/CSV/JSON/XLSX/PPTX plus PNG/JPEG/WebP OCR and MP4/WebM transcription | One processing/indexing path turns different media into searchable knowledge | `modules/processing/text/`, `OpenAiImageOcrProvider.java`, `OpenAiMediaTranscriptionProvider.java` |
+| Retrieval and RAG | PostgreSQL lexical search, pgvector semantic retrieval, deterministic RRF, trusted `S1...` citations, and no-model no-evidence response | Grounds generated answers and keeps citation metadata application-authoritative | `SearchApplicationService.java`, `WorkspaceRagApplicationService.java` |
+| Versions and Evolution | Explicit immutable append, locked version numbering, exact-version download/intelligence, and structured comparison | Preserves knowledge history and makes generated analysis reproducible | `AssetUploadTransaction.java`, `AssetEvolutionApplicationService.java` |
+| Collaboration and isolation | Five roles, membership checks, expiring email-bound invitations, creator-scoped slugs, UUID identity, and activity history | Human-readable namespaces do not weaken tenant boundaries | workspace/audit services and `V18__scope_workspace_slug_to_creator.sql` |
+| Billing and providers | Central plans/usage, backend-priced Checkout, verified callbacks, provider identity checks, lifecycle ordering, and cancel-at-period-end | Entitlements come from backend/provider authority, not UI state | billing application services, Stripe adapter, Billing page |
+| Reliability | Idempotency, checksum dedup, transactional outbox, Kafka acknowledgement/retry/DLT, replay, locks, rate limits, and cache fallback | Makes failure and concurrency behavior explicit instead of relying on happy-path requests | outbox, Kafka, Redis, storage, and operations packages |
+| Production hardening | Profile validation, Stripe-only production guard, bounded billing refresh, one-time legacy reconciliation, health probes, and mobile-safe layouts | Keeps deployment and recovery constraints enforceable | profile YAML, billing polling/reconciliation, responsive tests |
+
+### Premium media is denied before upload side effects
+
+`AssetUploadCapabilityPolicy` allows normal supported documents on FREE and requires PRO or ENTERPRISE for image OCR and MP4/WebM transcription. In both initial and append-version uploads the backend evaluates this policy before checksum calculation, idempotency reservation, storage preparation, asset/version persistence, or outbox/Kafka intent. Frontend dropzone checks improve the message, but bypassing them does not bypass the server policy.
+
+### Stripe provider consistency and bounded repair
+
+- Checkout is backend-priced and idempotently tied to a workspace payment row; a return query is not authority.
+- A verified successful Checkout resolves the trusted Stripe subscription and synchronizes current provider state. Stripe periods support modern item-level fields; invoice aggregation periods are not used as subscription windows.
+- Entitled lifecycle precedence is explicit: `customer.subscription.created` (`340`), verified checkout snapshot (`345`), then `customer.subscription.updated` (`350`). Occurrence time and terminal priorities prevent stale rollback.
+- Subscription/payment rows are locked through confirmation and synchronization boundaries. Provider lookup failure or identity mismatch rolls the transaction back.
+- Billing-page post-checkout verification polls every three seconds for at most ten Stripe update observations; ordinary reads do not poll indefinitely.
+- `StripeSubscriptionReconciliationService` repairs eligible historical ACTIVE PRO Stripe rows only from their stored verified subscription ID. A separate one-time reconciliation marker prevents repeated provider reads and does not overwrite normal lifecycle ordering.
+
+## Alternate Payment Provider: Local Razorpay Integration
+
+Local Razorpay is a **development/demo/reference integration**, not the deployed public payment gateway. It demonstrates that AssetSphere's billing application is insulated from provider-specific contracts by `PaymentGateway` and `LocalPaymentDemoGateway`.
+
+| Concern | Current implementation |
+|---|---|
+| Selection | `ASSETSPHERE_PAYMENT_MODE=RAZORPAY_LOCAL`; production profile validation rejects it |
+| Compatibility | Explicit `MY` and `TUTOR` contract variants map different order payload/response shapes to one `CheckoutSession` |
+| Service boundary | Independently runnable HTTP provider, defaulting to `http://localhost:8082`; AssetSphere sends merchant-authenticated order/payment requests |
+| Payment methods | The MY demo checkout supports Card, UPI, Netbanking, and Wallet; Card data is forwarded only to `/v1/vault/tokenize`, replaced by a token, and never stored by AssetSphere |
+| Status | Payment creation and order-payment lookup are normalized into provider-independent payment states; short terminal/non-terminal caches reduce rapid polling pressure and can serve cached state after provider `429` |
+| Confirmation | Order creation never grants PRO. HMAC-SHA256-verified webhooks feed the normal idempotent confirmation service |
+| DEV fallback | Optional MY polling confirmation independently revalidates stored order/payment identity, amount, currency, and captured status before using the same confirmation path |
+| Safety boundary | Poll confirmation is disabled by default, DEV/HACKATHON-only, MY-only, and rejected in production; TUTOR and Stripe are not affected |
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as AssetSphere frontend
+    participant API as AssetSphere backend
+    participant LR as Local Razorpay service
+    participant Billing as AssetSphere billing
+
+    User->>UI: Upgrade / choose demo method
+    UI->>API: Create backend-priced checkout
+    API->>LR: Create merchant order (MY or TUTOR adapter)
+    LR-->>API: Provider order identity + state
+    API-->>UI: Normalized pending checkout
+    UI->>API: Initiate local payment
+    API->>LR: Tokenize card if needed, then create payment
+    LR-->>API: Provider payment state
+    alt Verified webhook available
+        LR->>API: HMAC-signed payment event
+    else Explicit DEV MY poll enabled
+        API->>LR: Read stored order/payment status
+    end
+    API->>Billing: Validate provider/order/payment/amount/currency
+    Billing->>Billing: Idempotently activate PRO only on verified success
+    API-->>UI: Authoritative billing state
+```
+
+This differs from public Stripe Checkout: Stripe hosts the checkout and remains the production profile's only permitted provider. Local Razorpay exists to exercise a second contract, direct demo payment methods, callback verification, and provider-independent state transitions without coupling billing core to that local application's internals.
+
+## Screenshot Evidence Plan
+
+No image is linked until a real capture exists under `docs/images/`.
+
+<!-- SCREENSHOT: ask-grounded-citations.png — grounded answer and trusted source cards. -->
+<!-- SCREENSHOT: evolution-intelligence.png — exact-version comparison result. -->
+<!-- SCREENSHOT: asset-intelligence.png — summary, key points, tags, and model selection. -->
+<!-- SCREENSHOT: hybrid-search.png — real hybrid result ranking. -->
+<!-- SCREENSHOT: stripe-pro-billing.png — Stripe PRO period, usage, and cancellation state. -->
+<!-- SCREENSHOT: local-razorpay-checkout.png — local methods and provider order. -->
+<!-- SCREENSHOT: local-razorpay-success.png — captured payment awaiting/receiving verified confirmation. -->
+<!-- SCREENSHOT: local-razorpay-failure.png — provider failure while workspace remains unchanged. -->
+<!-- SCREENSHOT: premium-media-entitlement.png — FREE denial and plan guidance. -->
+<!-- SCREENSHOT: knowledge-check.png — grounded generated quiz. -->
 
 ## Reliability Internals
 

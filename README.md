@@ -4,9 +4,17 @@ AssetSphere is a secure, version-aware knowledge workspace that turns documents,
 
 > **Your knowledge changes. AssetSphere understands what changed.**
 
-[Live Application](https://assetsphere-mu.vercel.app) · [Swagger / OpenAPI](https://assetsphere-production.up.railway.app/swagger-ui/index.html) · [Architecture](docs/ARCHITECTURE.md) · [Deployment & Local Setup](docs/DEPLOYMENT.md) · [Usage & API Guide](docs/USAGE_AND_API_GUIDE.md)
+[Live Application](https://assetsphere-mu.vercel.app) · [Demo Video](https://youtu.be/Is7codPpdZw) · [Swagger / OpenAPI](https://assetsphere-production.up.railway.app/swagger-ui/index.html) · [Architecture](docs/ARCHITECTURE.md) · [Deployment & Local Setup](docs/DEPLOYMENT.md) · [Usage & API Guide](docs/USAGE_AND_API_GUIDE.md)
 
 The public deployment uses Stripe **TEST/SANDBOX** Checkout, so no real payment is required.
+
+## Hackathon Recognition
+
+🏆 **4th Place**
+
+AssetSphere finished **4th place** in the hackathon.
+
+🎥 **Demo Video:** [Watch the AssetSphere demo](https://youtu.be/Is7codPpdZw)
 
 ## What is AssetSphere?
 
@@ -56,6 +64,54 @@ flowchart LR
 ```
 
 Processing and provider-backed features are asynchronous or quota-controlled where appropriate. The UI presents the persisted state instead of assuming that an accepted upload is immediately searchable.
+
+## Beyond the Demo
+
+The short hackathon walkthrough shows only the main product journey. The repository also contains production-style engineering that is easier to verify in code than in a short video:
+
+- **Multimodal knowledge:** format-specific document extraction, authorized image OCR, MP4/WebM transcription, exact-version intelligence, workspace insights, Knowledge Checks, and Evolution Intelligence.
+- **Grounded retrieval:** PostgreSQL lexical search, 1536-dimensional pgvector semantic search, deterministic hybrid RRF, bounded Ask context, and application-validated citations.
+- **Tenant and collaboration controls:** UUID workspace identity, creator-scoped human-readable slugs, OWNER/ADMIN/MEMBER/VIEWER/AUDITOR roles, single-use invitations, and durable activity history.
+- **Failure-aware processing:** transactional outbox, broker acknowledgement, bounded retry/backoff, topic-specific DLTs, controlled replay, token-owned Redis locks, and honest persisted processing states.
+- **Retry and storage safety:** idempotency keys plus normalized fingerprints protect logical retries; workspace-scoped SHA-256 deduplication separately reuses physical content.
+- **SaaS enforcement:** backend-authoritative FREE/PRO/ENTERPRISE entitlements, atomic usage accounting, premium-media gating before upload side effects, Stripe subscription convergence, and bounded legacy-period reconciliation.
+- **Operational readiness:** production configuration validation, health/readiness/liveness endpoints, correlation IDs, safe failure logging, Redis caches/rate limits, and responsive mobile layouts.
+
+See [Engineering Implementation Reference](docs/HACKATHON_EVIDENCE.md) for the strongest source and runtime evidence behind these claims.
+
+## Product Evidence
+
+Screenshots are intentionally not linked until real captures are added; these stable markers define the evidence set without creating broken or fabricated images.
+
+<!-- SCREENSHOT: docs/images/ask-grounded-citations.png
+     Capture Ask AssetSphere with the grounded answer and trusted citation cards visible. -->
+<!-- SCREENSHOT: docs/images/evolution-intelligence.png
+     Capture an exact-version Evolution comparison with structured changes visible. -->
+<!-- SCREENSHOT: docs/images/asset-intelligence.png
+     Capture asset Intelligence showing summary, key points, tags, and selected model. -->
+<!-- SCREENSHOT: docs/images/hybrid-search.png
+     Capture Hybrid search with real workspace results and version metadata. -->
+<!-- SCREENSHOT: docs/images/stripe-pro-billing.png
+     Capture PRO ACTIVE billing with provider-derived renewal/cancellation state and usage. -->
+
+## Payments: One Billing Core, Explicit Providers
+
+Billing depends on the provider-neutral `PaymentGateway` port, while adapters own provider-specific HTTP, signatures, and payload mapping. The public hackathon deployment uses **Stripe TEST/SANDBOX**; the production profile permits Stripe only. Backend-priced Checkout creates a pending payment relationship, but neither order creation nor the browser redirect grants PRO. Verified provider events synchronize payment identity, subscription status, modern Stripe item-level periods, and cancel-at-period-end state. A bounded, one-time authorized read reconciliation lets pre-fix Stripe subscriptions converge from their already-trusted stored subscription ID without turning every billing read into a provider call.
+
+`RAZORPAY_LOCAL` is a development/demo/reference adapter, never the public production gateway. It supports the current `MY` and `TUTOR` contracts; the `MY` flow exposes Card, UPI, Netbanking, and Wallet demo methods, HMAC-verified callbacks, normalized payment states, and an explicitly opt-in DEV/HACKATHON polling confirmation path. Order creation alone never activates PRO, and production startup rejects local mode.
+
+## Reliability by Design
+
+| Problem | AssetSphere mechanism | Result |
+|---|---|---|
+| Retried write requests | Idempotency key + normalized fingerprint | Exact retries replay; changed requests conflict |
+| Database/Kafka dual write | Transactional outbox | Business state and publish intent commit together |
+| At-least-once delivery | Stable event identity, state checks, and locks | Duplicate work remains safe without an exactly-once claim |
+| Repeated failures | Bounded retry, DLT, safe diagnostics, controlled replay | Terminal failures remain visible and operable |
+| Concurrent processing/versioning | Token-owned Redis locks and database asset lock | Version-scoped work and version numbers do not race |
+| Provider callbacks | Signature verification, event claims, and ordering | Browser/client input cannot grant subscription authority |
+| Tenant isolation | Authorization before work + workspace predicates | IDs alone cannot cross workspace boundaries |
+| Expensive retrieval/AI | Redis limits, quotas, bounded context, exact-version scope | Cost and data egress stay constrained |
 
 ## Architecture
 
